@@ -269,7 +269,7 @@ pub fn call_operation_with_device(
         Operation::PragmaActiveReset(op) => {
             unsafe {
                 if quest_sys::measure(qureg.quest_qureg, *op.qubit() as i32) == 1 {
-                    quest_sys::pauliX(qureg.quest_qureg, *op.qubit() as c_int)
+                    quest_sys::pauliX(qureg.quest_qureg, *op.qubit() as ::std::os::raw::c_int)
                 }
             }
             Ok(())
