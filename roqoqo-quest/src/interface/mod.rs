@@ -269,7 +269,7 @@ pub fn call_operation_with_device(
         Operation::PragmaActiveReset(op) => {
             unsafe {
                 if quest_sys::measure(qureg.quest_qureg, *op.qubit() as i32) == 1 {
-                    quest_sys::pauliX(qureg.quest_qureg, *op.qubit() as ::std::os::raw::c_int)
+                    quest_sys::pauliX(qureg.quest_qureg, *op.qubit() as c_int)
                 }
             }
             Ok(())
@@ -422,7 +422,7 @@ pub fn call_operation_with_device(
             unsafe {
                 quest_sys::rotateY(
                     qureg.quest_qureg,
-                    *op.qubit() as ::std::os::raw::c_int,
+                    *op.qubit() as c_int,
                     std::f64::consts::FRAC_PI_2,
                 )
             }
@@ -434,7 +434,7 @@ pub fn call_operation_with_device(
             unsafe {
                 quest_sys::rotateY(
                     qureg.quest_qureg,
-                    *op.qubit() as ::std::os::raw::c_int,
+                    *op.qubit() as c_int,
                     std::f64::consts::FRAC_PI_2 * -1.0,
                 )
             }
