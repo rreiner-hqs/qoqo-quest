@@ -215,8 +215,11 @@ impl Backend {
         // circuit that require density matrix mode
         let is_density_matrix = circuit_vec.iter().any(find_pragma_op);
 
+        // NOTE We should take into account the global phase for when the user wants to get the
+        // StateVector, but it is a lot of work because one would have to adjust all the unittests
+        // in the various packages.
+
         // Calculate total global phase of the circuit
-        // TODO not used at the moment??
         // let global_phase = circuit_vec
         //     .iter()
         //     .filter_map(|x| match x {
@@ -267,8 +270,7 @@ impl Backend {
         let mut number_measurements: Option<usize> = None;
         // Readout register name for the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
-        // TODO should this be an option?
-        let mut repeated_measurement_readout: String = "".to_string();
+        let mut repeated_measurement_readout: Option<String> = None;
         // This variable controls whether the existing measurement pragmas are replaced with a
         // single PragmaRepeatedMeasurement
         let mut replace_measurements: Option<usize> = None;
@@ -479,7 +481,7 @@ impl Backend {
 fn handle_repeated_measurements(
     circuit_vec: &Vec<&Operation>,
     number_measurements: &mut Option<usize>,
-    repeated_measurement_readout: &mut String,
+    repeated_measurement_readout: &mut Option<String>,
     replace_measurements: &mut Option<usize>,
 ) -> Result<(), RoqoqoBackendError> {
     for op in circuit_vec.iter() {
@@ -492,7 +494,7 @@ fn handle_repeated_measurements(
                 }
                 None => {
                     *number_measurements = Some(*o.number_measurements());
-                    repeated_measurement_readout.clone_from(o.readout());
+                    repeated_measurement_readout.replace(o.readout().clone());
                     *replace_measurements = Some(0);
                 }
             },
@@ -504,7 +506,7 @@ fn handle_repeated_measurements(
                 }
                 None => {
                     *number_measurements = Some(*o.number_measurements());
-                    repeated_measurement_readout.clone_from(o.readout());
+                    repeated_measurement_readout.replace(o.readout().clone());
                     *replace_measurements = Some(0);
                 }
             },
@@ -512,23 +514,23 @@ fn handle_repeated_measurements(
         }
     }
 
-    let found_fitting_measurement = circuit_vec.iter().any(|op| match op {
-        Operation::MeasureQubit(inner_op) => {
-            inner_op.readout().as_str() == repeated_measurement_readout.as_str()
-        }
-        Operation::PragmaRepeatedMeasurement(inner_op) => {
-            inner_op.readout().as_str() == repeated_measurement_readout.as_str()
-        }
-        _ => false,
-    });
-
-    if number_measurements.is_some() && !found_fitting_measurement {
-        return Err(RoqoqoBackendError::GenericError {
-            msg: format!(
-                "No matching measurement found for PragmaSetNumberOfMeasurements for readout `{}`",
-                repeated_measurement_readout
-            ),
+    // check that, if a PragmaSetNumberOfMeasurements is present, there is a measurement that writes
+    // to the same register.
+    if let Some(ro) = repeated_measurement_readout {
+        let found_fitting_measurement = circuit_vec.iter().any(|op| match op {
+            Operation::MeasureQubit(inner_op) => inner_op.readout() == ro,
+            Operation::PragmaRepeatedMeasurement(inner_op) => inner_op.readout() == ro,
+            _ => false,
         });
+
+        if !found_fitting_measurement {
+            return Err(RoqoqoBackendError::GenericError {
+                msg: format!(
+                    "No matching measurement found for PragmaSetNumberOfMeasurements for readout `{}`",
+                    ro
+                ),
+            });
+        }
     }
 
     return Ok(());
@@ -722,19 +724,20 @@ mod test {
         ));
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetPauliProduct::new(
-            HashMap::new(),
-            "pauli".to_owned(),
-            vec![Operation::from(
-                roqoqo::operations::PragmaDepolarising::new(
-                    1,
-                    CalculatorFloat::PI,
-                    CalculatorFloat::ZERO,
-                ),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let op =
+            roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetPauliProduct::new(
+                HashMap::new(),
+                "pauli".to_owned(),
+                vec![Operation::from(
+                    roqoqo::operations::PragmaDepolarising::new(
+                        1,
+                        CalculatorFloat::PI,
+                        CalculatorFloat::ZERO,
+                    ),
+                )]
+                .into_iter()
+                .collect(),
+            ));
         assert!(find_pragma_op(&&op));
 
         let op = roqoqo::operations::Operation::from(
@@ -755,25 +758,25 @@ mod test {
         );
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
-            "complex_register".to_owned(),
-            Some(
-                vec![Operation::from(
-                    roqoqo::operations::PragmaSetDensityMatrix::new(ndarray::array![
-                        [num_complex::Complex::new(1., 0.)],
-                        [num_complex::Complex::new(0., 1.)]
-                    ]),
-                )]
-                .into_iter()
-                .collect(),
-            ),
-        ));
+        let op =
+            roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
+                "complex_register".to_owned(),
+                Some(
+                    vec![Operation::from(
+                        roqoqo::operations::PragmaSetDensityMatrix::new(ndarray::array![
+                            [num_complex::Complex::new(1., 0.)],
+                            [num_complex::Complex::new(0., 1.)]
+                        ]),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
+            ));
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
-            "complex_register".to_owned(),
-            None,
-        ));
+        let op = roqoqo::operations::Operation::from(
+            roqoqo::operations::PragmaGetDensityMatrix::new("complex_register".to_owned(), None),
+        );
         assert!(!find_pragma_op(&&op));
     }
 }
