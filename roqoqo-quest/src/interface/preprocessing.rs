@@ -32,7 +32,9 @@ fn index_out_of_range_msg(index: &usize, length: &usize) -> String {
     )
 }
 
-/// TODO docstring
+/// Get the total number of qubits used in the circuit and the lengths of the defined registers.
+///
+/// Also performs checks on the lengths and names of the output registers of various operations.
 pub fn get_number_used_qubits_and_registers_lengths(
     circuit: &Vec<&Operation>,
 ) -> Result<(usize, HashMap<String, usize>), RoqoqoBackendError> {
@@ -151,6 +153,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
                             msg: index_out_of_range_msg(measure_op.readout_index(), length),
                         });
                     }
+                    used_qubits.insert(*measure_op.qubit());
                 } else {
                     return Err(RoqoqoBackendError::GenericError {
                         msg: undefined_register_msg(

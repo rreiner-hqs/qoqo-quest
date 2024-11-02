@@ -77,8 +77,9 @@ impl Backend {
     }
 
     /// Sets the random random seed for the backend.
-    /// If different instances of the backend are running in parallel, the results won't be deterministic,
-    /// even with a random_seed set.
+    ///
+    /// If different instances of the backend are running in parallel, the results won't be
+    /// deterministic, even with a random_seed set.
     ///
     /// # Arguments
     ///
@@ -103,7 +104,7 @@ impl Backend {
     /// is set with PragmaRepeatedMeasurement or PragmaSetNumberMeasurements. It should only be
     /// different from one if a stochastic unravelling of a noisy simulation is used with
     /// PragmaRandomNoise or PragmaOverrotation. If the number of repetitions is set to a value
-    /// different from one and no PragmaRandomNoise or PRagmaOverrotation are present in the
+    /// different from one and no PragmaRandomNoise or PragmaOverrotation are present in the
     /// circuit, the set value will be ignored and only one repetition will be used.
     ///
     /// # Arguments
@@ -208,12 +209,15 @@ impl Backend {
         let mut float_registers_output: HashMap<String, FloatOutputRegister> = HashMap::new();
         let mut complex_registers_output: HashMap<String, ComplexOutputRegister> = HashMap::new();
 
+        // insert output register names from the definitions in the circuit
+        initialize_registers(
+            bit_registers_output,
+            float_registers_output,
+            complex_registers_output,
+        );
+
         let (number_used_qubits, register_lengths) =
             get_number_used_qubits_and_registers_lengths(&circuit_vec)?;
-
-        // Automatically switch to density matrix mode if operations are present in the
-        // circuit that require density matrix mode
-        let is_density_matrix = circuit_vec.iter().any(find_pragma_op);
 
         // NOTE We should take into account the global phase for when the user wants to get the
         // StateVector, but it is a lot of work because one would have to adjust all the unittests
@@ -234,36 +238,16 @@ impl Backend {
         // many times to reconstruct the density matrix (when PragmaRandomNoise is present in
         // circuit) or when allowing for stochastic overrotations where coherent gates are applied
         // with a stocastic offset (when PragmaOverrotation is present in circuit)
-        let mut repetitions = match circuit_vec.iter().find(|x| {
-            matches!(
-                x,
-                Operation::PragmaRandomNoise(_) | Operation::PragmaOverrotation(_)
-            )
-        }) {
-            Some(_) => self.repetitions,
-            None => 1,
-        };
 
-        for op in circuit_vec.iter() {
-            match op {
-                Operation::DefinitionBit(def) => {
-                    if *def.is_output() {
-                        bit_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionFloat(def) => {
-                    if *def.is_output() {
-                        float_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionComplex(def) => {
-                    if *def.is_output() {
-                        complex_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                _ => (),
-            }
-        }
+        // let mut repetitions = match circuit_vec.iter().any(|x| {
+        //     matches!(
+        //         x,
+        //         Operation::PragmaRandomNoise(_) | Operation::PragmaOverrotation(_)
+        //     )
+        // }) {
+        //     true => self.repetitions,
+        //     false => 1,
+        // };
 
         // Number of measurements as set by the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
@@ -271,15 +255,11 @@ impl Backend {
         // Readout register name for the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
         let mut repeated_measurement_readout: Option<String> = None;
-        // This variable controls whether the existing measurement pragmas are replaced with a
-        // single PragmaRepeatedMeasurement
-        let mut replace_measurements: Option<usize> = None;
 
         handle_repeated_measurements(
             &circuit_vec,
             &mut number_measurements,
             &mut repeated_measurement_readout,
-            &mut replace_measurements,
         )?;
 
         // Switch between repeated measurement mode and rerunning the whole circuit
@@ -294,7 +274,7 @@ impl Backend {
         for op in circuit_vec.iter() {
             match op {
                 Operation::MeasureQubit(o) => {
-                    // If we already have a repeated measurement
+                    // If there is a repeated measurement in the circuit
                     if let Some(nm) = number_measurements {
                         if o.readout() != &repeated_measurement_readout
                             || measured_qubits_in_repeated_measurement.contains(o.qubit())
@@ -313,7 +293,7 @@ impl Backend {
                     }
                 }
                 Operation::PragmaRepeatedMeasurement(o) => {
-                    // If we already have a repeated measurement
+                    // If there is a repeated measurement in the circuit
                     if let Some(nm) = number_measurements {
                         // Construct involved qubits
                         let involved_qubits: Vec<usize> = match register_lengths.get(o.readout()) {
@@ -375,28 +355,31 @@ impl Backend {
         }
         repetitions = temporary_repetitions;
 
-        // Create a repeated measurement operation
-        let repeated_measurement_pragma: Option<PragmaRepeatedMeasurement> =
-            if replace_measurements.is_some() {
-                let name = repeated_measurement_readout.clone();
-                let mut reordering_map: HashMap<usize, usize> = HashMap::new();
-                // Go through operations to build up hash map when readout_index is not equal to
-                // measured qubit
-                for op in circuit_vec.iter() {
-                    if let Operation::MeasureQubit(measure) = op {
-                        reordering_map.insert(*measure.qubit(), *measure.readout_index());
-                    }
-                }
-                Some(PragmaRepeatedMeasurement::new(
-                    name,
-                    number_measurements
-                        .expect("Cannot find number of repeated measurement output internal bug"),
-                    Some(reordering_map),
-                ))
-            } else {
-                None
-            };
+        // // Create a repeated measurement operation
+        // let repeated_measurement_pragma: Option<PragmaRepeatedMeasurement> =
+        //     if replace_measurements.is_some() {
+        //         let name = repeated_measurement_readout.clone();
+        //         let mut reordering_map: HashMap<usize, usize> = HashMap::new();
+        //         // Go through operations to build up hash map when readout_index is not equal to
+        //         // measured qubit
+        //         for op in circuit_vec.iter() {
+        //             if let Operation::MeasureQubit(measure) = op {
+        //                 reordering_map.insert(*measure.qubit(), *measure.readout_index());
+        //             }
+        //         }
+        //         Some(PragmaRepeatedMeasurement::new(
+        //             name,
+        //             number_measurements
+        //                 .expect("Cannot find number of repeated measurement output internal bug"),
+        //             Some(reordering_map),
+        //         ))
+        //     } else {
+        //         None
+        //     };
 
+        // Automatically switch to density matrix mode if operations are present in the
+        // circuit that require density matrix mode
+        let is_density_matrix = circuit_vec.iter().any(find_pragma_op);
         let mut qureg = Qureg::new((number_used_qubits) as u32, is_density_matrix);
 
         if let Some(mut random_seed) = self.random_seed.clone() {
@@ -409,15 +392,18 @@ impl Backend {
             };
         }
 
+        // TEMP the number of stochastic unravelling repetitions will be given by a new Pragma
+        // operation
+        let repetitions = 1;
         for _ in 0..repetitions {
             qureg.reset();
             let mut bit_registers_internal: HashMap<String, BitRegister> = HashMap::new();
             let mut float_registers_internal: HashMap<String, FloatRegister> = HashMap::new();
             let mut complex_registers_internal: HashMap<String, ComplexRegister> = HashMap::new();
+
             run_inner_circuit_loop(
                 &register_lengths,
                 &circuit_vec,
-                (replace_measurements, &repeated_measurement_pragma),
                 &mut qureg,
                 (
                     &mut bit_registers_internal,
@@ -449,6 +435,7 @@ impl Backend {
                 }
             }
         }
+
         Ok((
             bit_registers_output,
             float_registers_output,
@@ -458,7 +445,8 @@ impl Backend {
 
     #[inline]
     fn validate_circuit(&self, circuit_vec: &Vec<&Operation>) -> Result<(), RoqoqoBackendError> {
-        let (number_used_qubits, _) = get_number_used_qubits_and_registers_lengths(&circuit_vec)?;
+        let (number_used_qubits, register_lengths) =
+            get_number_used_qubits_and_registers_lengths(&circuit_vec)?;
 
         if number_used_qubits > self.number_qubits {
             return Err(RoqoqoBackendError::GenericError {
@@ -470,19 +458,52 @@ impl Backend {
                 ),
             });
         }
+
         Ok(())
+    }
+}
+
+#[inline]
+fn initialize_registers(
+    bit_registers_output: &mut HashMap<String, BitOutputRegister>,
+    float_registers_output: &mut HashMap<String, FloatOutputRegister>,
+    complex_registers_output: &mut HashMap<String, ComplexOutputRegister>,
+) {
+    for op in circuit_vec.iter() {
+        match op {
+            Operation::DefinitionBit(def) => {
+                if *def.is_output() {
+                    bit_registers_output.insert(def.name().clone(), Vec::new());
+                }
+            }
+            Operation::DefinitionFloat(def) => {
+                if *def.is_output() {
+                    float_registers_output.insert(def.name().clone(), Vec::new());
+                }
+            }
+            Operation::DefinitionComplex(def) => {
+                if *def.is_output() {
+                    complex_registers_output.insert(def.name().clone(), Vec::new());
+                }
+            }
+            _ => (),
+        }
     }
 }
 
 /// Handler for repeated measurements.
 ///
-/// TODO write docstring after deciding on desired behavior
+/// Assigns the correct values to the mutable variables in the input according to the repeated
+/// measurements found in the circuit.
+///
+/// There can only be either one PragmaRepeatedMeasurement or one PragmaSetNumberOfMeasurements, and
+/// for the latter there must be an associated measurement in the circuit that writes to the same
+/// register.
 #[inline]
 fn handle_repeated_measurements(
     circuit_vec: &Vec<&Operation>,
     number_measurements: &mut Option<usize>,
     repeated_measurement_readout: &mut Option<String>,
-    replace_measurements: &mut Option<usize>,
 ) -> Result<(), RoqoqoBackendError> {
     for op in circuit_vec.iter() {
         match op {
@@ -495,7 +516,6 @@ fn handle_repeated_measurements(
                 None => {
                     *number_measurements = Some(*o.number_measurements());
                     repeated_measurement_readout.replace(o.readout().clone());
-                    *replace_measurements = Some(0);
                 }
             },
             Operation::PragmaSetNumberOfMeasurements(o) => match number_measurements {
@@ -507,7 +527,6 @@ fn handle_repeated_measurements(
                 None => {
                     *number_measurements = Some(*o.number_measurements());
                     repeated_measurement_readout.replace(o.readout().clone());
-                    *replace_measurements = Some(0);
                 }
             },
             _ => (),
@@ -536,82 +555,36 @@ fn handle_repeated_measurements(
     return Ok(());
 }
 
-// groups replace_measurements and repeated_measurement_pragma
-type ReplacedMeasurementInformation<'a> = (Option<usize>, &'a Option<PragmaRepeatedMeasurement>);
-
+/// Go through all the operations and actually execute them on the Qureg. PragmaRepeatedMeasurement
+/// operations are replaced with singe qubit measurement operations on all the involved qubits.
 fn run_inner_circuit_loop(
     register_lengths: &HashMap<String, usize>,
     circuit_vec: &[&Operation],
-    replaced_measurement_information: ReplacedMeasurementInformation,
     qureg: &mut Qureg,
     registers_internal: InternalRegisters,
     bit_registers_output: &mut HashMap<String, Vec<Vec<bool>>>,
     device: &mut Option<Box<dyn roqoqo::devices::Device>>,
 ) -> Result<(), RoqoqoBackendError> {
-    let (replace_measurements, repeated_measurement_pragma) = replaced_measurement_information;
     let (bit_registers_internal, float_registers_internal, complex_registers_internal) =
         registers_internal;
 
     for op in circuit_vec.iter() {
         match op {
-            Operation::PragmaRepeatedMeasurement(rm) => match replace_measurements {
-                None => {
-                    let number_qubits: usize = match register_lengths.get(rm.readout()) {
-                        Some(pragma_nm) => {
-                            let n = *pragma_nm;
-                            n - 1
-                        }
-                        None => {
-                            return Err(RoqoqoBackendError::GenericError{
-                                msg:
-                                "No register corresponding to PragmaRepeatedMeasurement readout \
-                                 found"
-                                    .to_string()
-                            });
-                        }
+            Operation::PragmaRepeatedMeasurement(rm) => {
+                let number_qubits = register_lengths.get(rm.readout()).expect(
+                    "PragmaRepeatedMeasurement writes to undefined register. Internal circuit \
+                         validation error.",
+                );
+
+                for qb in 0..number_qubits {
+                    let ro_index = match rm.qubit_mapping() {
+                        Some(mp) => mp.get(&qb).unwrap_or(&qb),
+                        None => &qb,
                     };
-                    for qb in 0..number_qubits {
-                        let ro_index = match rm.qubit_mapping() {
-                            Some(mp) => mp.get(&qb).unwrap_or(&qb),
-                            None => &qb,
-                        };
-                        let mqb_new: Operation =
-                            MeasureQubit::new(qb, rm.readout().to_owned(), *ro_index).into();
-                        call_operation_with_device(
-                            &mqb_new,
-                            qureg,
-                            bit_registers_internal,
-                            float_registers_internal,
-                            complex_registers_internal,
-                            bit_registers_output,
-                            device,
-                        )?;
-                    }
-                }
-                Some(_) => {
-                    execute_pragma_repeated_measurement(
-                        rm,
-                        qureg,
-                        bit_registers_internal,
-                        bit_registers_output,
-                    )?;
-                }
-            },
-            Operation::MeasureQubit(internal_op) => {
-                if let Some(position) = replace_measurements {
-                    if internal_op.qubit() == &position {
-                        if let Some(helper) = repeated_measurement_pragma.as_ref() {
-                            execute_replaced_repeated_measurement(
-                                helper,
-                                qureg,
-                                bit_registers_internal,
-                                bit_registers_output,
-                            )?;
-                        }
-                    }
-                } else {
+                    let measure_qubit_op: Operation =
+                        MeasureQubit::new(qb, rm.readout().to_string(), *ro_index).into();
                     call_operation_with_device(
-                        op,
+                        &measure_qubit_op,
                         qureg,
                         bit_registers_internal,
                         float_registers_internal,
