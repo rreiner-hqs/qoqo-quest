@@ -16,31 +16,35 @@ use roqoqo::RoqoqoBackendError;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-#[inline]
-fn undefined_register_msg(reg_type: &str, reg_name: &str, op: &str, missing_op: &str) -> String {
-    format!(
-        "No {} readout register {} defined for {} operation. Did you forget to add a {} operation?",
-        reg_type, reg_name, op, missing_op
-    )
-}
+use roqoqo::registers::{BitOutputRegister, ComplexOutputRegister, FloatOutputRegister};
 
-#[inline]
-fn index_out_of_range_msg(index: &usize, length: &usize) -> String {
-    format!(
-        "Trying to write a qubit measurement at index {} on a bit register of length {}. Did you \
-         define a large enough register with the DefinitionBit operation?",
-        index, length
-    )
-}
+type OutputRegisters = (
+    HashMap<String, BitOutputRegister>,
+    HashMap<String, FloatOutputRegister>,
+    HashMap<String, ComplexOutputRegister>,
+);
 
-/// TODO docstring
-pub fn get_number_used_qubits_and_registers_lengths(
+type RegisterLengths = (
+    HashMap<String, usize>,
+    HashMap<String, usize>,
+    HashMap<String, usize>,
+);
+
+/// Extract from circuit the names of the output registers, their lengths, and the number of used
+/// qubits in the circuit.
+fn initialize_registers(
     circuit: &Circuit,
-) -> Result<(usize, HashMap<String, usize>), RoqoqoBackendError> {
+) -> Result<(OutputRegisters, RegisterLengths, usize), RoqoqoBackendError> {
     let mut used_qubits: HashSet<usize> = HashSet::new();
-    let mut bit_registers_lenghts: HashMap<String, usize> = HashMap::new();
-    let mut float_registers_lenghts: HashMap<String, usize> = HashMap::new();
-    let mut complex_registers_lenghts: HashMap<String, usize> = HashMap::new();
+
+    // Set up output registers
+    let mut bit_registers_output: HashMap<String, BitOutputRegister> = HashMap::new();
+    let mut float_registers_output: HashMap<String, FloatOutputRegister> = HashMap::new();
+    let mut complex_registers_output: HashMap<String, ComplexOutputRegister> = HashMap::new();
+
+    let mut bit_registers_lengths: HashMap<String, usize> = HashMap::new();
+    let mut float_registers_lengths: HashMap<String, usize> = HashMap::new();
+    let mut complex_registers_lengths: HashMap<String, usize> = HashMap::new();
 
     for op in circuit.iter() {
         if let InvolvedQubits::Set(n) = op.involved_qubits() {
@@ -49,22 +53,25 @@ pub fn get_number_used_qubits_and_registers_lengths(
         match op {
             Operation::DefinitionBit(def) => {
                 if *def.is_output() {
-                    bit_registers_lenghts.insert(def.name().clone(), *def.length());
+                    bit_registers_lengths.insert(def.name().clone(), *def.length());
+                    bit_registers_output.insert(def.name().clone(), Vec::new());
                 }
             }
             Operation::DefinitionFloat(def) => {
                 if *def.is_output() {
-                    float_registers_lenghts.insert(def.name().clone(), *def.length());
+                    float_registers_lengths.insert(def.name().clone(), *def.length());
+                    float_registers_output.insert(def.name().clone(), Vec::new());
                 }
             }
             Operation::DefinitionComplex(def) => {
                 if *def.is_output() {
                     // Size of register = 4^(qubits_used)
-                    complex_registers_lenghts.insert(def.name().clone(), *def.length());
+                    complex_registers_lengths.insert(def.name().clone(), *def.length());
+                    complex_registers_output.insert(def.name().clone(), Vec::new());
                 }
             }
             Operation::PragmaGetDensityMatrix(get_op) => {
-                if let Some(length) = complex_registers_lenghts.get(get_op.readout()) {
+                if let Some(length) = complex_registers_lengths.get(get_op.readout()) {
                     let number_qubits = (*length).ilog(4) as usize;
                     used_qubits.extend(0..number_qubits);
                 } else {
@@ -79,7 +86,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
                 }
             }
             Operation::PragmaGetStateVector(get_op) => {
-                if let Some(length) = complex_registers_lenghts.get(get_op.readout()) {
+                if let Some(length) = complex_registers_lengths.get(get_op.readout()) {
                     let number_qubits = (*length).ilog2() as usize;
                     used_qubits.extend(0..number_qubits);
                 } else {
@@ -94,7 +101,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
                 }
             }
             Operation::PragmaRepeatedMeasurement(rep_measure) => {
-                if let Some(length) = bit_registers_lenghts.get(rep_measure.readout()) {
+                if let Some(length) = bit_registers_lengths.get(rep_measure.readout()) {
                     if let Some(mapping) = rep_measure.qubit_mapping() {
                         for x in mapping.values() {
                             if x >= length {
@@ -119,7 +126,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
                 }
             }
             Operation::PragmaGetOccupationProbability(get_op) => {
-                if let Some(length) = float_registers_lenghts.get(get_op.readout()) {
+                if let Some(length) = float_registers_lengths.get(get_op.readout()) {
                     used_qubits.extend(0..*length);
                 } else {
                     return Err(RoqoqoBackendError::GenericError {
@@ -134,7 +141,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
             }
             Operation::PragmaGetPauliProduct(get_op) => {
                 used_qubits.extend(get_op.qubit_paulis().keys());
-                if !float_registers_lenghts.contains_key(get_op.readout()) {
+                if !float_registers_lengths.contains_key(get_op.readout()) {
                     return Err(RoqoqoBackendError::GenericError {
                         msg: undefined_register_msg(
                             "Float",
@@ -146,7 +153,7 @@ pub fn get_number_used_qubits_and_registers_lengths(
                 }
             }
             Operation::MeasureQubit(measure_op) => {
-                if let Some(length) = bit_registers_lenghts.get(measure_op.readout()) {
+                if let Some(length) = bit_registers_lengths.get(measure_op.readout()) {
                     if measure_op.readout_index() >= length {
                         return Err(RoqoqoBackendError::GenericError {
                             msg: index_out_of_range_msg(measure_op.readout_index(), length),
@@ -166,12 +173,38 @@ pub fn get_number_used_qubits_and_registers_lengths(
             _ => (),
         }
     }
-    let largest_used_qubit = match used_qubits.iter().max() {
+    let number_qubits = match used_qubits.iter().max() {
         Some(l) => *l + 1,
         None => 1,
     };
+    let output_registers = (
+        bit_registers_output,
+        float_registers_output,
+        complex_registers_output,
+    );
+    let register_lengths = (
+        bit_registers_lengths,
+        float_registers_lengths,
+        complex_registers_lengths,
+    );
+    Ok((output_registers, register_lengths, number_qubits))
+}
 
-    Ok((largest_used_qubit, bit_registers_lenghts))
+#[inline]
+fn undefined_register_msg(reg_type: &str, reg_name: &str, op: &str, missing_op: &str) -> String {
+    format!(
+        "No {} readout register {} defined for {} operation. Did you forget to add a {} operation?",
+        reg_type, reg_name, op, missing_op
+    )
+}
+
+#[inline]
+fn index_out_of_range_msg(index: &usize, length: &usize) -> String {
+    format!(
+        "Trying to write a qubit measurement at index {} on a bit register of length {}. Did you \
+         define a large enough register with the DefinitionBit operation?",
+        index, length
+    )
 }
 
 #[cfg(test)]

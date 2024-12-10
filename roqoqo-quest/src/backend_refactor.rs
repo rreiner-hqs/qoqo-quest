@@ -12,7 +12,7 @@
 
 use crate::interface::{
     call_operation_with_device, execute_pragma_repeated_measurement,
-    execute_replaced_repeated_measurement, get_number_used_qubits_and_registers_lengths,
+    execute_replaced_repeated_measurement, initialize_registers,
 };
 
 use roqoqo::backends::EvaluatingBackend;
@@ -98,6 +98,9 @@ impl EvaluatingBackend for Backend {
         &self,
         circuit: impl Iterator<Item = &'a Operation>,
     ) -> RegisterResult {
+        // TODO discuss this. I find this approach much cleaner because from here on we only deal
+        // with roqoqo Circuit objects. But we have the overhead of copying the whole circuit.
+        let circuit = circuit.into_iter().cloned().collect::<Circuit>();
         self.run_circuit_iterator_with_device(circuit, &mut None)
     }
 
@@ -149,12 +152,6 @@ impl EvaluatingBackend for Backend {
     }
 }
 
-type OutputRegisters = (
-    HashMap<String, BitOutputRegister>,
-    HashMap<String, FloatOutputRegister>,
-    HashMap<String, ComplexOutputRegister>,
-);
-
 impl Backend {
     /// Runs each operation in a quantum circuit on the backend.
     ///
@@ -187,13 +184,16 @@ impl Backend {
         // TODO Is this needed?
         // let circuit_vec: Vec<&'a Operation> = circuit.into_iter().collect();
 
-        self.validate_circuit(&circuit)?;
+        // Initialize output register names from circuit definitions
+        let (output_registers, register_lengths, number_used_qubits) =
+            initialize_registers(&circuit)?;
 
-        let (number_used_qubits, register_lengths) =
-            get_number_used_qubits_and_registers_lengths(&circuit)?;
+        self.validate_circuit(&circuit, number_used_qubits)?;
 
         let (bit_registers_output, float_registers_output, complex_registers_output) =
-            self.initialize_registers(&circuit)?;
+            output_registers;
+        let (bit_registers_lengths, float_registers_lengths, complex_registers_lengths) =
+            register_lengths;
 
         // Automatically switch to density matrix mode if operations are present in the
         // circuit that require density matrix mode
@@ -371,47 +371,12 @@ impl Backend {
         ))
     }
 
-    /// TODO
-    fn initialize_registers(
+    #[inline]
+    fn validate_circuit(
         &self,
         circuit: &Circuit,
-    ) -> Result<OutputRegisters, RoqoqoBackendError> {
-        // Set up output registers
-        let mut bit_registers_output: HashMap<String, BitOutputRegister> = HashMap::new();
-        let mut float_registers_output: HashMap<String, FloatOutputRegister> = HashMap::new();
-        let mut complex_registers_output: HashMap<String, ComplexOutputRegister> = HashMap::new();
-
-        for op in circuit.iter() {
-            match op {
-                Operation::DefinitionBit(def) => {
-                    if *def.is_output() {
-                        bit_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionFloat(def) => {
-                    if *def.is_output() {
-                        float_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionComplex(def) => {
-                    if *def.is_output() {
-                        complex_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                _ => (),
-            }
-        }
-        Ok((
-            bit_registers_output,
-            float_registers_output,
-            complex_registers_output,
-        ))
-    }
-
-    #[inline]
-    fn validate_circuit(&self, circuit: &Circuit) -> Result<(), RoqoqoBackendError> {
-        let (number_used_qubits, _) = get_number_used_qubits_and_registers_lengths(circuit)?;
-
+        number_used_qubits: usize,
+    ) -> Result<(), RoqoqoBackendError> {
         if number_used_qubits > self.number_qubits {
             return Err(RoqoqoBackendError::GenericError {
                 msg: format!(
