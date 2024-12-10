@@ -33,8 +33,8 @@ version = "0.21"
 features = ["num-complex"]
 
 [dependencies]
-qoqo = { version = "~1.16.0", default-features = false }
-roqoqo = { version = "~1.16.0" }
+qoqo = { version = "~1.17.0", default-features = false, features = ["unstable_simulation_repetitions"] }
+roqoqo = { version = "~1.17.0", features = ["unstable_simulation_repetitions"] }
 roqoqo-quest = { version = "~0.14.5", path = "../roqoqo-quest", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 qoqo_calculator = { version = "~1.2" }

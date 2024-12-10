@@ -8,3 +8,7 @@ lto = true
 
 [profile.bench]
 lto = true
+
+[patch.crates-io]
+roqoqo = { path = "/home/rreiner/HQS/forks/qoqo/roqoqo" }
+qoqo = { path = "/home/rreiner/HQS/forks/qoqo/qoqo" }

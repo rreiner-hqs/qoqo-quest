@@ -216,7 +216,7 @@ impl Backend {
         // or PragmaSetNumberOfMeasurements), if present
         let mut repeated_measurement_readout: Option<String> = None;
 
-        handle_repeated_measurements(
+        let simulation_repetitions = handle_repeated_measurements(
             &circuit,
             &mut number_measurements,
             &mut repeated_measurement_readout,
@@ -234,7 +234,7 @@ impl Backend {
             };
         }
 
-        for _ in 0..repetitions {
+        for _ in 0..simulation_repetitions {
             qureg.reset();
             let mut bit_registers_internal: HashMap<String, BitRegister> = HashMap::new();
             let mut float_registers_internal: HashMap<String, FloatRegister> = HashMap::new();
@@ -309,7 +309,9 @@ fn handle_repeated_measurements(
     circuit: &Circuit,
     number_measurements: &mut Option<usize>,
     repeated_measurement_readout: &mut Option<String>,
-) -> Result<(), RoqoqoBackendError> {
+) -> Result<usize, RoqoqoBackendError> {
+    let mut simulation_repetitions: usize = 1;
+
     for op in circuit.iter() {
         match op {
             Operation::PragmaRepeatedMeasurement(o) => match number_measurements {
@@ -334,6 +336,9 @@ fn handle_repeated_measurements(
                     repeated_measurement_readout.replace(o.readout().clone());
                 }
             },
+            Operation::PragmaSimulationRepetitions(o) => {
+                simulation_repetitions = o.repetitions()
+            }
             _ => (),
         }
     }
@@ -361,7 +366,7 @@ fn handle_repeated_measurements(
         }
     }
 
-    return Ok(());
+    return Ok(simulation_repetitions);
 }
 
 type InternalRegisters<'a> = (
