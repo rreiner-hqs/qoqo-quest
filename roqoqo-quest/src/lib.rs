@@ -25,7 +25,8 @@
 
 mod interface;
 pub use interface::{call_circuit, call_operation, call_operation_with_device};
-mod backend;
-pub use backend::Backend;
+// TEMP remove when finished refactoring
+mod backend_refactor;
+pub use backend_refactor::Backend;
 mod quest_bindings;
 pub use quest_bindings::*;

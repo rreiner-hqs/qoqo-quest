@@ -14,21 +14,9 @@ use crate::interface::{
     call_operation_with_device, execute_pragma_repeated_measurement,
     execute_replaced_repeated_measurement, get_number_used_qubits_and_registers_lengths,
 };
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-#[cfg(feature = "parallelization")]
-use rayon::prelude::*;
-#[cfg(feature = "async")]
-use roqoqo::backends::AsyncEvaluatingBackend;
+
 use roqoqo::backends::EvaluatingBackend;
-#[cfg(feature = "parallelization")]
-use roqoqo::measurements::Measure;
-#[cfg(feature = "parallelization")]
-use roqoqo::registers::Registers;
-#[cfg(feature = "parallelization")]
 use roqoqo::Circuit;
-// use roqoqo::measurements::Measure;
-use crate::Qureg;
 use roqoqo::backends::RegisterResult;
 use roqoqo::operations::*;
 use roqoqo::registers::{
@@ -36,13 +24,28 @@ use roqoqo::registers::{
     FloatRegister,
 };
 use roqoqo::RoqoqoBackendError;
+
+use crate::Qureg;
 use std::collections::HashMap;
+
+#[cfg(feature = "async")]
+use async_trait::async_trait;
+#[cfg(feature = "async")]
+use roqoqo::backends::AsyncEvaluatingBackend;
+
+#[cfg(feature = "parallelization")]
+use roqoqo::measurements::Measure;
+#[cfg(feature = "parallelization")]
+use roqoqo::registers::Registers;
+#[cfg(feature = "parallelization")]
+use rayon::prelude::*;
+
 
 const REPEATED_MEAS_ERROR: &str =
     "Only one repeated measurement allowed in the circuit. Make sure \
-                                    that the submitted circuit contains only one \
-                                    PragmaRepeatedMeasurement or one \
-                                    PragmaSetNumberOfMeasurements.";
+     that the submitted circuit contains only one \
+     PragmaRepeatedMeasurement or one \
+     PragmaSetNumberOfMeasurements.";
 
 /// QuEST backend
 ///
@@ -53,11 +56,6 @@ const REPEATED_MEAS_ERROR: &str =
 pub struct Backend {
     /// Number of qubits supported by the backend
     pub number_qubits: usize,
-    /// Number of repetitions for stochastic circuit simulations. Not to be confused with the number
-    /// of simulated measurements per simulation run. Note that this parameter will only be used if
-    /// PragmaRandomNoise or PragmaOverrotation are present in the circuit being simulated,
-    /// otherwise it will default to one.
-    pub repetitions: usize,
     /// Random seed
     pub random_seed: Option<Vec<u64>>,
 }
@@ -71,7 +69,6 @@ impl Backend {
     pub fn new(number_qubits: usize, random_seed: Option<Vec<u64>>) -> Self {
         Self {
             number_qubits,
-            repetitions: 1,
             random_seed,
         }
     }
@@ -94,24 +91,6 @@ impl Backend {
     /// `Option<Vec<u64>>` - The current random seed
     pub fn get_random_seed(&self) -> Option<Vec<u64>> {
         self.random_seed.clone()
-    }
-
-    /// Sets the number of repetitions used for stochastic circuit simulations
-    ///
-    /// The number of repetitions of the actual simulation is set to one by default. The repetitions
-    /// are not to be confused with the number of simulated measurements per simulation run, which
-    /// is set with PragmaRepeatedMeasurement or PragmaSetNumberMeasurements. It should only be
-    /// different from one if a stochastic unravelling of a noisy simulation is used with
-    /// PragmaRandomNoise or PragmaOverrotation. If the number of repetitions is set to a value
-    /// different from one and no PragmaRandomNoise or PRagmaOverrotation are present in the
-    /// circuit, the set value will be ignored and only one repetition will be used.
-    ///
-    /// # Arguments
-    ///
-    /// `repetitions` - The number of repetitions that is set
-    pub fn set_repetitions(mut self, repetitions: usize) -> Self {
-        self.repetitions = repetitions;
-        self
     }
 }
 
@@ -215,8 +194,8 @@ impl Backend {
         // circuit that require density matrix mode
         let is_density_matrix = circuit_vec.iter().any(find_pragma_op);
 
-        // Calculate total global phase of the circuit
-        // TODO not used at the moment??
+        // TODO not used at the moment. We would need to adjust all the tests in the other HQS
+        // modules if we accounted for global phases.
         // let global_phase = circuit_vec
         //     .iter()
         //     .filter_map(|x| match x {
@@ -224,22 +203,6 @@ impl Backend {
         //         _ => None,
         //     })
         //     .fold(CalculatorFloat::ZERO, |acc, x| acc + x);
-
-        // Determine repetitions, how many times the numerical simulation is repeated (not to be
-        // confused with the number of measurements drawn from one sample). This is only necessary
-        // for stochastic unravelling where a stochastic trajectory of a single state is simulated
-        // many times to reconstruct the density matrix (when PragmaRandomNoise is present in
-        // circuit) or when allowing for stochastic overrotations where coherent gates are applied
-        // with a stocastic offset (when PragmaOverrotation is present in circuit)
-        let mut repetitions = match circuit_vec.iter().find(|x| {
-            matches!(
-                x,
-                Operation::PragmaRandomNoise(_) | Operation::PragmaOverrotation(_)
-            )
-        }) {
-            Some(_) => self.repetitions,
-            None => 1,
-        };
 
         for op in circuit_vec.iter() {
             match op {
@@ -539,6 +502,12 @@ fn handle_repeated_measurements(
 // groups replace_measurements and repeated_measurement_pragma
 type ReplacedMeasurementInformation<'a> = (Option<usize>, &'a Option<PragmaRepeatedMeasurement>);
 
+type InternalRegisters<'a> = (
+    &'a mut HashMap<String, Vec<bool>>,
+    &'a mut HashMap<String, Vec<f64>>,
+    &'a mut HashMap<String, Vec<num_complex::Complex<f64>>>,
+);
+
 fn run_inner_circuit_loop(
     register_lengths: &HashMap<String, usize>,
     circuit_vec: &[&Operation],
@@ -636,12 +605,6 @@ fn run_inner_circuit_loop(
     }
     Ok(())
 }
-
-type InternalRegisters<'a> = (
-    &'a mut HashMap<String, Vec<bool>>,
-    &'a mut HashMap<String, Vec<f64>>,
-    &'a mut HashMap<String, Vec<num_complex::Complex<f64>>>,
-);
 
 #[inline]
 fn find_pragma_op(op: &&Operation) -> bool {

@@ -617,9 +617,9 @@ fn create_rng(qureg: &mut Qureg) -> Result<StdRng, RoqoqoBackendError> {
         )
     }
 }
+
 #[cfg(test)]
 mod test {
-
     use super::*;
 
     #[test]
