@@ -11,6 +11,7 @@
 // limitations under the License.
 
 use roqoqo::operations::*;
+use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -34,14 +35,14 @@ fn index_out_of_range_msg(index: &usize, length: &usize) -> String {
 
 /// TODO docstring
 pub fn get_number_used_qubits_and_registers_lengths(
-    circuit: &Vec<&Operation>,
+    circuit: &Circuit,
 ) -> Result<(usize, HashMap<String, usize>), RoqoqoBackendError> {
     let mut used_qubits: HashSet<usize> = HashSet::new();
     let mut bit_registers_lenghts: HashMap<String, usize> = HashMap::new();
     let mut float_registers_lenghts: HashMap<String, usize> = HashMap::new();
     let mut complex_registers_lenghts: HashMap<String, usize> = HashMap::new();
 
-    for op in circuit {
+    for op in circuit.iter() {
         if let InvolvedQubits::Set(n) = op.involved_qubits() {
             used_qubits.extend(&n)
         }

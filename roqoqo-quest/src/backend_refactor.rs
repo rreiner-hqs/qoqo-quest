@@ -16,13 +16,13 @@ use crate::interface::{
 };
 
 use roqoqo::backends::EvaluatingBackend;
-use roqoqo::Circuit;
 use roqoqo::backends::RegisterResult;
 use roqoqo::operations::*;
 use roqoqo::registers::{
     BitOutputRegister, BitRegister, ComplexOutputRegister, ComplexRegister, FloatOutputRegister,
     FloatRegister,
 };
+use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 
 use crate::Qureg;
@@ -34,12 +34,11 @@ use async_trait::async_trait;
 use roqoqo::backends::AsyncEvaluatingBackend;
 
 #[cfg(feature = "parallelization")]
+use rayon::prelude::*;
+#[cfg(feature = "parallelization")]
 use roqoqo::measurements::Measure;
 #[cfg(feature = "parallelization")]
 use roqoqo::registers::Registers;
-#[cfg(feature = "parallelization")]
-use rayon::prelude::*;
-
 
 const REPEATED_MEAS_ERROR: &str =
     "Only one repeated measurement allowed in the circuit. Make sure \
@@ -150,6 +149,12 @@ impl EvaluatingBackend for Backend {
     }
 }
 
+type OutputRegisters = (
+    HashMap<String, BitOutputRegister>,
+    HashMap<String, FloatOutputRegister>,
+    HashMap<String, ComplexOutputRegister>,
+);
+
 impl Backend {
     /// Runs each operation in a quantum circuit on the backend.
     ///
@@ -176,23 +181,23 @@ impl Backend {
     /// * `RegisterResult` - The output registers written by the evaluated circuits.
     pub fn run_circuit_iterator_with_device<'a>(
         &self,
-        circuit: impl Iterator<Item = &'a Operation>,
+        circuit: Circuit,
         device: &mut Option<Box<dyn roqoqo::devices::Device>>,
     ) -> RegisterResult {
-        let circuit_vec: Vec<&'a Operation> = circuit.into_iter().collect();
-        self.validate_circuit(&circuit_vec)?;
+        // TODO Is this needed?
+        // let circuit_vec: Vec<&'a Operation> = circuit.into_iter().collect();
 
-        // Set up output registers
-        let mut bit_registers_output: HashMap<String, BitOutputRegister> = HashMap::new();
-        let mut float_registers_output: HashMap<String, FloatOutputRegister> = HashMap::new();
-        let mut complex_registers_output: HashMap<String, ComplexOutputRegister> = HashMap::new();
+        self.validate_circuit(&circuit)?;
 
         let (number_used_qubits, register_lengths) =
-            get_number_used_qubits_and_registers_lengths(&circuit_vec)?;
+            get_number_used_qubits_and_registers_lengths(&circuit)?;
+
+        let (bit_registers_output, float_registers_output, complex_registers_output) =
+            self.initialize_registers(&circuit)?;
 
         // Automatically switch to density matrix mode if operations are present in the
         // circuit that require density matrix mode
-        let is_density_matrix = circuit_vec.iter().any(find_pragma_op);
+        let is_density_matrix = circuit.iter().any(find_pragma_op);
 
         // TODO not used at the moment. We would need to adjust all the tests in the other HQS
         // modules if we accounted for global phases.
@@ -203,27 +208,6 @@ impl Backend {
         //         _ => None,
         //     })
         //     .fold(CalculatorFloat::ZERO, |acc, x| acc + x);
-
-        for op in circuit_vec.iter() {
-            match op {
-                Operation::DefinitionBit(def) => {
-                    if *def.is_output() {
-                        bit_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionFloat(def) => {
-                    if *def.is_output() {
-                        float_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                Operation::DefinitionComplex(def) => {
-                    if *def.is_output() {
-                        complex_registers_output.insert(def.name().clone(), Vec::new());
-                    }
-                }
-                _ => (),
-            }
-        }
 
         // Number of measurements as set by the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
@@ -387,9 +371,46 @@ impl Backend {
         ))
     }
 
+    /// TODO
+    fn initialize_registers(
+        &self,
+        circuit: &Circuit,
+    ) -> Result<OutputRegisters, RoqoqoBackendError> {
+        // Set up output registers
+        let mut bit_registers_output: HashMap<String, BitOutputRegister> = HashMap::new();
+        let mut float_registers_output: HashMap<String, FloatOutputRegister> = HashMap::new();
+        let mut complex_registers_output: HashMap<String, ComplexOutputRegister> = HashMap::new();
+
+        for op in circuit.iter() {
+            match op {
+                Operation::DefinitionBit(def) => {
+                    if *def.is_output() {
+                        bit_registers_output.insert(def.name().clone(), Vec::new());
+                    }
+                }
+                Operation::DefinitionFloat(def) => {
+                    if *def.is_output() {
+                        float_registers_output.insert(def.name().clone(), Vec::new());
+                    }
+                }
+                Operation::DefinitionComplex(def) => {
+                    if *def.is_output() {
+                        complex_registers_output.insert(def.name().clone(), Vec::new());
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok((
+            bit_registers_output,
+            float_registers_output,
+            complex_registers_output,
+        ))
+    }
+
     #[inline]
-    fn validate_circuit(&self, circuit_vec: &Vec<&Operation>) -> Result<(), RoqoqoBackendError> {
-        let (number_used_qubits, _) = get_number_used_qubits_and_registers_lengths(&circuit_vec)?;
+    fn validate_circuit(&self, circuit: &Circuit) -> Result<(), RoqoqoBackendError> {
+        let (number_used_qubits, _) = get_number_used_qubits_and_registers_lengths(circuit)?;
 
         if number_used_qubits > self.number_qubits {
             return Err(RoqoqoBackendError::GenericError {
@@ -491,11 +512,10 @@ fn run_inner_circuit_loop(
                         n - 1
                     }
                     None => {
-                        return Err(RoqoqoBackendError::GenericError{
-                            msg:
-                            "No register corresponding to PragmaRepeatedMeasurement readout \
+                        return Err(RoqoqoBackendError::GenericError {
+                            msg: "No register corresponding to PragmaRepeatedMeasurement readout \
                                 found"
-                                .to_string()
+                                .to_string(),
                         });
                     }
                 };
@@ -516,7 +536,7 @@ fn run_inner_circuit_loop(
                         device,
                     )?;
                 }
-            },
+            }
             _ => {
                 call_operation_with_device(
                     op,
@@ -534,7 +554,7 @@ fn run_inner_circuit_loop(
 }
 
 #[inline]
-fn find_pragma_op(op: &&Operation) -> bool {
+fn find_pragma_op(op: &Operation) -> bool {
     match op {
         Operation::PragmaConditional(x) => x.circuit().iter().any(|x| find_pragma_op(&x)),
         Operation::PragmaLoop(x) => x.circuit().iter().any(|x| find_pragma_op(&x)),
@@ -614,19 +634,20 @@ mod test {
         ));
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetPauliProduct::new(
-            HashMap::new(),
-            "pauli".to_owned(),
-            vec![Operation::from(
-                roqoqo::operations::PragmaDepolarising::new(
-                    1,
-                    CalculatorFloat::PI,
-                    CalculatorFloat::ZERO,
-                ),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let op =
+            roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetPauliProduct::new(
+                HashMap::new(),
+                "pauli".to_owned(),
+                vec![Operation::from(
+                    roqoqo::operations::PragmaDepolarising::new(
+                        1,
+                        CalculatorFloat::PI,
+                        CalculatorFloat::ZERO,
+                    ),
+                )]
+                .into_iter()
+                .collect(),
+            ));
         assert!(find_pragma_op(&&op));
 
         let op = roqoqo::operations::Operation::from(
@@ -647,25 +668,25 @@ mod test {
         );
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
-            "complex_register".to_owned(),
-            Some(
-                vec![Operation::from(
-                    roqoqo::operations::PragmaSetDensityMatrix::new(ndarray::array![
-                        [num_complex::Complex::new(1., 0.)],
-                        [num_complex::Complex::new(0., 1.)]
-                    ]),
-                )]
-                .into_iter()
-                .collect(),
-            ),
-        ));
+        let op =
+            roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
+                "complex_register".to_owned(),
+                Some(
+                    vec![Operation::from(
+                        roqoqo::operations::PragmaSetDensityMatrix::new(ndarray::array![
+                            [num_complex::Complex::new(1., 0.)],
+                            [num_complex::Complex::new(0., 1.)]
+                        ]),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
+            ));
         assert!(find_pragma_op(&&op));
 
-        let op = roqoqo::operations::Operation::from(roqoqo::operations::PragmaGetDensityMatrix::new(
-            "complex_register".to_owned(),
-            None,
-        ));
+        let op = roqoqo::operations::Operation::from(
+            roqoqo::operations::PragmaGetDensityMatrix::new("complex_register".to_owned(), None),
+        );
         assert!(!find_pragma_op(&&op));
     }
 }
