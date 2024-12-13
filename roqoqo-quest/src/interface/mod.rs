@@ -225,7 +225,7 @@ pub fn call_operation_with_device(
             Ok(())
         }
         Operation::PragmaRepeatedMeasurement(op) => {
-            execute_pragma_repeated_measurement(op, qureg, bit_registers, bit_registers_output)
+            panic!("Internal bug in qoqo-quest. Encountered PragmaRepeatedMeasurement ")
         }
         Operation::MeasureQubit(op) => {
             check_acts_on_qubits_in_qureg(operation, qureg)?;
@@ -705,6 +705,7 @@ where
     }
 }
 
+// TODO either this function or the next needs to be removed to avoid code duplication
 #[inline]
 fn check_acts_on_qubits_in_qureg(
     operation: &Operation,

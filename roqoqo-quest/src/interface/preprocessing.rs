@@ -32,7 +32,7 @@ type RegisterLengths = (
 
 /// Extract from circuit the names of the output registers, their lengths, and the number of used
 /// qubits in the circuit.
-fn initialize_registers(
+pub(crate) fn initialize_registers(
     circuit: &Circuit,
 ) -> Result<(OutputRegisters, RegisterLengths, usize), RoqoqoBackendError> {
     let mut used_qubits: HashSet<usize> = HashSet::new();

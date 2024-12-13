@@ -26,7 +26,7 @@ use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 
 use crate::Qureg;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "async")]
 use async_trait::async_trait;
@@ -181,9 +181,6 @@ impl Backend {
         circuit: Circuit,
         device: &mut Option<Box<dyn roqoqo::devices::Device>>,
     ) -> RegisterResult {
-        // TODO Is this needed?
-        // let circuit_vec: Vec<&'a Operation> = circuit.into_iter().collect();
-
         // Initialize output register names from circuit definitions
         let (output_registers, register_lengths, number_used_qubits) =
             initialize_registers(&circuit)?;
@@ -209,17 +206,14 @@ impl Backend {
         //     })
         //     .fold(CalculatorFloat::ZERO, |acc, x| acc + x);
 
-        // Number of measurements as set by the repeated measurement operation (PragmaRepeatedMeasurement
-        // or PragmaSetNumberOfMeasurements), if present
-        let mut number_measurements: Option<usize> = None;
         // Readout register name for the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
         let mut repeated_measurement_readout: Option<String> = None;
 
-        let simulation_repetitions = handle_repeated_measurements(
+        let repetitions = handle_repeated_measurements(
             &circuit,
-            &mut number_measurements,
             &mut repeated_measurement_readout,
+            &bit_registers_lengths,
         )?;
 
         let mut qureg = Qureg::new((number_used_qubits) as u32, is_density_matrix);
@@ -234,7 +228,7 @@ impl Backend {
             };
         }
 
-        for _ in 0..simulation_repetitions {
+        for _ in 0..repetitions {
             qureg.reset();
             let mut bit_registers_internal: HashMap<String, BitRegister> = HashMap::new();
             let mut float_registers_internal: HashMap<String, FloatRegister> = HashMap::new();
@@ -302,18 +296,25 @@ impl Backend {
 
 /// Handler for repeated measurements.
 ///
-/// Scans the circuit to either PragmaRepeatedMeasurement or PragmaSetNumberOfMeasurements, and
-/// saves the number of measurements as well as the name of the readout register.
-#[inline]
+/// Checks that the number of repetitions given by PragmaSimulationRepeittions is coherent with the
+/// rest of the circuit. The number of simulation repetitions should be greater than one if at least
+/// one of the following conditions if met
+/// 1) There are multiple measure operations on the same qubit
+/// 2) A qubit is acted upon with a multi-qubit gate after it has been measured
 fn handle_repeated_measurements(
     circuit: &Circuit,
-    number_measurements: &mut Option<usize>,
     repeated_measurement_readout: &mut Option<String>,
+    register_lengths: &HashMap<String, usize>,
 ) -> Result<usize, RoqoqoBackendError> {
     let mut simulation_repetitions: usize = 1;
+    let mut number_measurements: Option<usize> = None;
+    let mut measured_qubits: Vec<usize> = vec![];
+    // flag for when PragmaSimulationRepetitions is needed
+    let mut stochastic_simulation = false;
 
     for op in circuit.iter() {
         match op {
+            Operation::MeasureQubit(o) => measured_qubits.push(*o.qubit()),
             Operation::PragmaRepeatedMeasurement(o) => match number_measurements {
                 Some(_) => {
                     return Err(RoqoqoBackendError::GenericError {
@@ -321,7 +322,16 @@ fn handle_repeated_measurements(
                     })
                 }
                 None => {
-                    *number_measurements = Some(*o.number_measurements());
+                    let number_qubits: usize =
+                        *register_lengths
+                            .get(o.readout())
+                            .ok_or(RoqoqoBackendError::GenericError {
+                            msg: "No register corresponding to PragmaRepeatedMeasurement readout \
+                                found"
+                                .to_string(),
+                        })?;
+                    measured_qubits.extend(0..number_qubits - 1);
+                    number_measurements = Some(*o.number_measurements());
                     repeated_measurement_readout.replace(o.readout().clone());
                 }
             },
@@ -332,41 +342,79 @@ fn handle_repeated_measurements(
                     })
                 }
                 None => {
-                    *number_measurements = Some(*o.number_measurements());
+                    number_measurements = Some(*o.number_measurements());
                     repeated_measurement_readout.replace(o.readout().clone());
                 }
             },
-            Operation::PragmaSimulationRepetitions(o) => {
-                simulation_repetitions = o.repetitions()
+            Operation::PragmaSimulationRepetitions(o) => simulation_repetitions = o.repetitions(),
+            // TODO check: do we need to do this also for some operations that involve All qubits?
+            _ => {
+                if let InvolvedQubits::Set(set) = op.involved_qubits() {
+                    if set.any(|q| measured_qubits.contains(q)) {
+                        stochastic_simulation = true;
+                    }
+                }
             }
-            _ => (),
         }
     }
 
-    let found_fitting_measurement = if let Some(readout_name) = repeated_measurement_readout {
-        circuit.iter().any(|op| match op {
-            Operation::MeasureQubit(inner_op) => inner_op.readout() == readout_name,
-            Operation::PragmaRepeatedMeasurement(inner_op) => {
-                inner_op.readout() == readout_name
-            }
-            _ => false,
-        })
-    } else {
-        true
-    };
+    // // TODO I'm not sure this is needed. Either the PragmaSetNOM readout decides which measurements
+    // // are repeated and which not, ot it is irrelevant.
+    // // This checks that, if we have a PragmaSetNumberOfMeasurements, there is at least one
+    // // measurement that writes to the readout of the pragma
+    // let found_fitting_measurement = if let Some(readout_name) = repeated_measurement_readout {
+    //     circuit.iter().any(|op| match op {
+    //         Operation::MeasureQubit(inner_op) => inner_op.readout() == readout_name,
+    //         Operation::PragmaRepeatedMeasurement(inner_op) => {
+    //             inner_op.readout() == readout_name
+    //         }
+    //         _ => false,
+    //     })
+    // } else {
+    //     true
+    // };
 
-    if !found_fitting_measurement {
-        if let Some(readout_name) = repeated_measurement_readout {
-            return Err(RoqoqoBackendError::GenericError {
-                msg: format!(
-                    "No matching measurement found for PragmaSetNumberOfMeasurements for readout `{}`",
-                    readout_name
-                ),
-            });
-        }
+    // if !found_fitting_measurement {
+    //     if let Some(readout_name) = repeated_measurement_readout {
+    //         return Err(RoqoqoBackendError::GenericError {
+    //             msg: format!(
+    //                 "No matching measurement found for PragmaSetNumberOfMeasurements for readout `{}`",
+    //                 readout_name
+    //             ),
+    //         });
+    //     }
+    // }
+
+    // Check if qubits are being measured more than once (condition 1 in the docstring)
+    if contains_duplicates(measured_qubits) {
+        stochastic_simulation = true
     }
 
+    if stochastic_simulation && simulation_repetitions == 1 {
+        return Err(RoqoqoBackendError::GenericError {
+            msg:
+                "Circuit requires a stochastic simulation, but a number of simulation repetitions \
+                  is not set with PragmaSimulationRepetitions."
+                    .to_string(),
+        });
+    }
+
+    if let Some(nm) = number_measurements {
+        simulation_repetitions = simulation_repetitions * nm;
+    }
     return Ok(simulation_repetitions);
+}
+
+// check if a vector contains duplicates
+#[inline]
+fn contains_duplicates(vec: Vec<usize>) -> bool {
+    let mut seen = HashSet::new();
+    for &value in &vec {
+        if !seen.insert(value) {
+            return true;
+        }
+    }
+    false
 }
 
 type InternalRegisters<'a> = (
@@ -389,19 +437,13 @@ fn run_inner_circuit_loop(
     for op in circuit.iter() {
         match op {
             Operation::PragmaRepeatedMeasurement(rm) => {
-                let number_qubits: usize = match register_lengths.get(rm.readout()) {
-                    Some(pragma_nm) => {
-                        let n = *pragma_nm;
-                        n - 1
-                    }
-                    None => {
-                        return Err(RoqoqoBackendError::GenericError {
-                            msg: "No register corresponding to PragmaRepeatedMeasurement readout \
+                let number_qubits: usize = *register_lengths.get(rm.readout()).ok_or(
+                    RoqoqoBackendError::GenericError {
+                        msg: "No register corresponding to PragmaRepeatedMeasurement readout \
                                 found"
-                                .to_string(),
-                        });
-                    }
-                };
+                            .to_string(),
+                    },
+                )?;
                 for qb in 0..number_qubits {
                     let ro_index = match rm.qubit_mapping() {
                         Some(mp) => mp.get(&qb).unwrap_or(&qb),
