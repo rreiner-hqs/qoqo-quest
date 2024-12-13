@@ -11,8 +11,7 @@
 // limitations under the License.
 
 use crate::interface::{
-    call_operation_with_device, execute_pragma_repeated_measurement,
-    execute_replaced_repeated_measurement, initialize_registers,
+    call_operation_with_device, initialize_registers,
 };
 
 use roqoqo::backends::EvaluatingBackend;
@@ -187,7 +186,7 @@ impl Backend {
 
         self.validate_circuit(&circuit, number_used_qubits)?;
 
-        let (bit_registers_output, float_registers_output, complex_registers_output) =
+        let (mut bit_registers_output, mut float_registers_output, mut complex_registers_output) =
             output_registers;
         let (bit_registers_lengths, float_registers_lengths, complex_registers_lengths) =
             register_lengths;
@@ -249,9 +248,10 @@ impl Backend {
             // Append bit result of one circuit execution to output register
             for (name, register) in bit_registers_output.iter_mut() {
                 if let Some(tmp_reg) = bit_registers_internal.get(name) {
-                    if name != &repeated_measurement_readout {
-                        register.push(tmp_reg.to_owned())
-                    }
+                    // TODO why is this check here?
+                    // if name != &repeated_measurement_readout {
+                    register.push(tmp_reg.to_owned())
+                    // }
                 }
             }
             // Append float result of one circuit execution to output register
@@ -350,7 +350,7 @@ fn handle_repeated_measurements(
             // TODO check: do we need to do this also for some operations that involve All qubits?
             _ => {
                 if let InvolvedQubits::Set(set) = op.involved_qubits() {
-                    if set.any(|q| measured_qubits.contains(q)) {
+                    if set.iter().any(|q| measured_qubits.contains(q)) {
                         stochastic_simulation = true;
                     }
                 }

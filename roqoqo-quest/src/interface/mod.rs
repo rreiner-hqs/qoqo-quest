@@ -10,25 +10,24 @@
 // express or implied. See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Qureg;
-use crate::Vector;
-use num_complex::Complex64;
+use crate::{Qureg, Vector};
+pub(crate) use preprocessing::initialize_registers;
+
 use roqoqo::operations::*;
 use roqoqo::registers::{BitOutputRegister, BitRegister, ComplexRegister, FloatRegister};
 use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
+
+use num_complex::Complex64;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::os::raw::c_int;
+
 mod pragma_operations;
 use pragma_operations::*;
 mod gate_operations;
 use gate_operations::*;
 mod preprocessing;
-pub(crate) use pragma_operations::{
-    execute_pragma_repeated_measurement, execute_replaced_repeated_measurement,
-};
-pub use preprocessing::initialize_registers;
-use std::os::raw::c_int;
 
 // Pragma operations that are ignored by backend and do not throw an error
 const ALLOWED_OPERATIONS: &[&str; 11] = &[
