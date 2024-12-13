@@ -30,7 +30,7 @@ use gate_operations::*;
 mod preprocessing;
 
 // Pragma operations that are ignored by backend and do not throw an error
-const ALLOWED_OPERATIONS: &[&str; 11] = &[
+const ALLOWED_OPERATIONS: &[&str; 12] = &[
     "PragmaSetNumberOfMeasurements",
     "PragmaBoostNoise",
     "PragmaStopParallelBlock",
@@ -42,6 +42,7 @@ const ALLOWED_OPERATIONS: &[&str; 11] = &[
     "PragmaStopDecompositionBlock",
     "PragmaOverrotation",
     "PragmaSleep",
+    "PragmaSimulationRepetitions"
 ];
 
 /// Simulate all operations in a [roqoqo::Circuit] acting on a quantum register
@@ -223,8 +224,9 @@ pub fn call_operation_with_device(
             }
             Ok(())
         }
-        Operation::PragmaRepeatedMeasurement(op) => {
-            panic!("Internal bug in qoqo-quest. Encountered PragmaRepeatedMeasurement ")
+        Operation::PragmaRepeatedMeasurement(_) => {
+            panic!("Internal bug in qoqo-quest. Encountered PragmaRepeatedMeasurement that has not \
+                    been replaced with MeasureQubit.")
         }
         Operation::MeasureQubit(op) => {
             check_acts_on_qubits_in_qureg(operation, qureg)?;
