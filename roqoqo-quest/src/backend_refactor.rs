@@ -18,7 +18,8 @@ use roqoqo::backends::EvaluatingBackend;
 use roqoqo::backends::RegisterResult;
 use roqoqo::operations::*;
 use roqoqo::registers::{
-    BitOutputRegister, BitRegister, ComplexOutputRegister, ComplexRegister, FloatOutputRegister,
+    BitRegister,
+    ComplexRegister,
     FloatRegister,
 };
 use roqoqo::Circuit;
@@ -181,15 +182,13 @@ impl Backend {
         device: &mut Option<Box<dyn roqoqo::devices::Device>>,
     ) -> RegisterResult {
         // Initialize output register names from circuit definitions
-        let (output_registers, register_lengths, number_used_qubits) =
+        let (output_registers, bit_registers_lengths, number_used_qubits) =
             initialize_registers(&circuit)?;
 
         self.validate_circuit(&circuit, number_used_qubits)?;
 
         let (mut bit_registers_output, mut float_registers_output, mut complex_registers_output) =
             output_registers;
-        let (bit_registers_lengths, float_registers_lengths, complex_registers_lengths) =
-            register_lengths;
 
         // Automatically switch to density matrix mode if operations are present in the
         // circuit that require density matrix mode

@@ -24,11 +24,7 @@ type OutputRegisters = (
     HashMap<String, ComplexOutputRegister>,
 );
 
-type RegisterLengths = (
-    HashMap<String, usize>,
-    HashMap<String, usize>,
-    HashMap<String, usize>,
-);
+type RegisterLengths = HashMap<String, usize>;
 
 /// Extract from circuit the names of the output registers, their lengths, and the number of used
 /// qubits in the circuit.
@@ -182,12 +178,7 @@ pub(crate) fn initialize_registers(
         float_registers_output,
         complex_registers_output,
     );
-    let register_lengths = (
-        bit_registers_lengths,
-        float_registers_lengths,
-        complex_registers_lengths,
-    );
-    Ok((output_registers, register_lengths, number_qubits))
+    Ok((output_registers, bit_registers_lengths, number_qubits))
 }
 
 #[inline]
