@@ -272,14 +272,18 @@ fn test_circuit_with_repeated_measurement_and_previous_measurement() {
     circuit += operations::MeasureQubit::new(0, "ro".to_string(), 1);
     circuit += operations::PauliX::new(0);
     circuit += operations::PragmaRepeatedMeasurement::new("ro".to_string(), 10, None);
+
     let backend = Backend::new(2, None);
     let (bit_result, float_result, complex_result) =
         backend.run_circuit_iterator(circuit.iter()).unwrap();
+
     assert!(float_result.is_empty());
     assert!(complex_result.is_empty());
     assert!(bit_result.contains_key("ro"));
+
     let nested_vec = bit_result.get("ro").unwrap();
     assert!(nested_vec.len() == 10);
+
     for repetition in nested_vec {
         assert!(repetition.len() == 2);
         assert!(!repetition[0]);
