@@ -375,7 +375,7 @@ mod tests {
         c += DefinitionFloat::new("ro".to_string(), 2, true);
         c += DefinitionFloat::new("ri".to_string(), 2, false);
 
-        let (_ , lengths, _) = initialize_registers(&c).unwrap();
+        let (_, lengths, _) = initialize_registers(&c).unwrap();
 
         let cmp_register = HashMap::new();
         assert_eq!(cmp_register, lengths);
@@ -384,8 +384,7 @@ mod tests {
         c += DefinitionComplex::new("ro".to_string(), 64, true);
         c += DefinitionComplex::new("ri".to_string(), 2, false);
 
-        let (_, lengths, used_qubits) =
-            initialize_registers(&c).unwrap();
+        let (_, lengths, used_qubits) = initialize_registers(&c).unwrap();
 
         let cmp_register = HashMap::new();
         assert_eq!(cmp_register, lengths);
@@ -395,8 +394,7 @@ mod tests {
         c += DefinitionBit::new("ro".to_string(), 2, true);
         c += DefinitionComplex::new("ri".to_string(), 10, true);
 
-        let (_, lengths, used_qubits) =
-            initialize_registers(&c).unwrap();
+        let (_, lengths, used_qubits) = initialize_registers(&c).unwrap();
 
         let cmp_register = HashMap::from([("ro".to_string(), 2)]);
         assert_eq!(cmp_register, lengths);

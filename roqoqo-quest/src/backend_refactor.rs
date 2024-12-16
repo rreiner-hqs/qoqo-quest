@@ -178,11 +178,12 @@ impl Backend {
         // Initialize output register names from circuit definitions
         let (output_registers, bit_registers_lengths, number_used_qubits) =
             initialize_registers(&circuit)?;
-
-        self.validate_circuit(&circuit, number_used_qubits)?;
-
+        // unpack
         let (mut bit_registers_output, mut float_registers_output, mut complex_registers_output) =
             output_registers;
+
+        // General circuit validation
+        self.validate_circuit(&circuit, number_used_qubits)?;
 
         // Automatically switch to density matrix mode if operations are present in the
         // circuit that require density matrix mode
@@ -387,7 +388,14 @@ fn handle_repeated_measurements(
         return Err(RoqoqoBackendError::GenericError {
             msg:
                 "Circuit requires a stochastic simulation, but a number of simulation repetitions \
-                  is not set with PragmaSimulationRepetitions."
+                 is not set with PragmaSimulationRepetitions, or is set to one."
+                    .to_string(),
+        });
+    } else if !stochastic_simulation && simulation_repetitions > 1 {
+        return Err(RoqoqoBackendError::GenericError {
+            msg:
+                "A number of simulation repetitions is set with PragmaSimulationRepetitions, but a \
+                 stochastic simulation is not needed."
                     .to_string(),
         });
     }
