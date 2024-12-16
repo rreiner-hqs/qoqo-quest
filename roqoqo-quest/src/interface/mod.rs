@@ -42,7 +42,7 @@ const ALLOWED_OPERATIONS: &[&str; 12] = &[
     "PragmaStopDecompositionBlock",
     "PragmaOverrotation",
     "PragmaSleep",
-    "PragmaSimulationRepetitions"
+    "PragmaSimulationRepetitions",
 ];
 
 /// Simulate all operations in a [roqoqo::Circuit] acting on a quantum register
@@ -225,8 +225,10 @@ pub fn call_operation_with_device(
             Ok(())
         }
         Operation::PragmaRepeatedMeasurement(_) => {
-            panic!("Internal bug in qoqo-quest. Encountered PragmaRepeatedMeasurement that has not \
-                    been replaced with MeasureQubit.")
+            panic!(
+                "Internal bug in qoqo-quest. Encountered PragmaRepeatedMeasurement that has not \
+                    been replaced with MeasureQubit."
+            )
         }
         Operation::MeasureQubit(op) => {
             check_acts_on_qubits_in_qureg(operation, qureg)?;

@@ -20,12 +20,6 @@ use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 use std::collections::HashMap;
 
-/// Numerical accuracy for ignoring negative occupation probabilities
-///
-/// Negative probabilities with a smaller absolute value will be interpreted as 0.
-/// Negative probabilities with a larger absolute value will cause an error.
-const NEGATIVE_PROBABILITIES_CUTOFF: f64 = -1.0e-14;
-
 // type alias for the signature of call_circuit_with_device, to decouple this module from mod.rs and
 // avoid circular imports
 type CallCircuitWithDevice = fn(
@@ -513,25 +507,25 @@ pub fn execute_pragma_conditional(
     Ok(())
 }
 
-#[inline]
-/// Sanitizes negative occupation probabilities
-///
-/// Setting negative probabilites with an absolute value less than a threshold to 0
-fn sanitize_probabilities(probabilities: &mut Vec<f64>) -> Result<(), RoqoqoBackendError> {
-    for val in probabilities.iter_mut() {
-        if *val < NEGATIVE_PROBABILITIES_CUTOFF {
-            return Err(RoqoqoBackendError::GenericError {
-                msg: format!(
-                    "Negative state occupation probabilites encountered {:?}",
-                    probabilities
-                ),
-            });
-        } else if *val < 0.0 {
-            *val = 0.0
-        }
-    }
-    Ok(())
-}
+// #[inline]
+// /// Sanitizes negative occupation probabilities
+// ///
+// /// Setting negative probabilites with an absolute value less than a threshold to 0
+// fn sanitize_probabilities(probabilities: &mut Vec<f64>) -> Result<(), RoqoqoBackendError> {
+//     for val in probabilities.iter_mut() {
+//         if *val < NEGATIVE_PROBABILITIES_CUTOFF {
+//             return Err(RoqoqoBackendError::GenericError {
+//                 msg: format!(
+//                     "Negative state occupation probabilites encountered {:?}",
+//                     probabilities
+//                 ),
+//             });
+//         } else if *val < 0.0 {
+//             *val = 0.0
+//         }
+//     }
+//     Ok(())
+// }
 
 fn create_rng(qureg: &mut Qureg) -> Result<StdRng, RoqoqoBackendError> {
     if qureg.quest_env.numSeeds != 0 {
@@ -562,30 +556,30 @@ fn create_rng(qureg: &mut Qureg) -> Result<StdRng, RoqoqoBackendError> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
 
-    #[test]
-    fn sanitize_probabilities_nothing() {
-        let mut probabilities = vec![0.3, 0.4, 0.1, 0.2];
-        let res = sanitize_probabilities(&mut probabilities);
-        assert!(res.is_ok());
-        assert_eq!(probabilities, vec![0.3, 0.4, 0.1, 0.2])
-    }
+//     #[test]
+//     fn sanitize_probabilities_nothing() {
+//         let mut probabilities = vec![0.3, 0.4, 0.1, 0.2];
+//         let res = sanitize_probabilities(&mut probabilities);
+//         assert!(res.is_ok());
+//         assert_eq!(probabilities, vec![0.3, 0.4, 0.1, 0.2])
+//     }
 
-    #[test]
-    fn sanitize_probabilities_set_to_zero() {
-        let mut probabilities = vec![0.3, 0.4, 0.23 * NEGATIVE_PROBABILITIES_CUTOFF, 0.2];
-        let res = sanitize_probabilities(&mut probabilities);
-        assert!(res.is_ok());
-        assert_eq!(probabilities, vec![0.3, 0.4, 0.0, 0.2])
-    }
+//     #[test]
+//     fn sanitize_probabilities_set_to_zero() {
+//         let mut probabilities = vec![0.3, 0.4, 0.23 * NEGATIVE_PROBABILITIES_CUTOFF, 0.2];
+//         let res = sanitize_probabilities(&mut probabilities);
+//         assert!(res.is_ok());
+//         assert_eq!(probabilities, vec![0.3, 0.4, 0.0, 0.2])
+//     }
 
-    #[test]
-    fn sanitize_probabilities_set_error() {
-        let mut probabilities = vec![0.3, 0.4, 1.3 * NEGATIVE_PROBABILITIES_CUTOFF, 0.2];
-        let res = sanitize_probabilities(&mut probabilities);
-        assert!(res.is_err());
-    }
-}
+//     #[test]
+//     fn sanitize_probabilities_set_error() {
+//         let mut probabilities = vec![0.3, 0.4, 1.3 * NEGATIVE_PROBABILITIES_CUTOFF, 0.2];
+//         let res = sanitize_probabilities(&mut probabilities);
+//         assert!(res.is_err());
+//     }
+// }

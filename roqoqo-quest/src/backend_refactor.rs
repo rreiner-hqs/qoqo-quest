@@ -10,18 +10,12 @@
 // express or implied. See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::interface::{
-    call_operation_with_device, initialize_registers,
-};
+use crate::interface::{call_operation_with_device, initialize_registers};
 
 use roqoqo::backends::EvaluatingBackend;
 use roqoqo::backends::RegisterResult;
 use roqoqo::operations::*;
-use roqoqo::registers::{
-    BitRegister,
-    ComplexRegister,
-    FloatRegister,
-};
+use roqoqo::registers::{BitRegister, ComplexRegister, FloatRegister};
 use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 
@@ -64,7 +58,7 @@ impl Backend {
     ///
     /// # Arguments
     ///
-    /// `number_qubits` - The number of qubits supported by the backend
+    /// * `number_qubits` - The number of qubits supported by the backend
     pub fn new(number_qubits: usize, random_seed: Option<Vec<u64>>) -> Self {
         Self {
             number_qubits,
@@ -78,7 +72,7 @@ impl Backend {
     ///
     /// # Arguments
     ///
-    /// `random_seed` - The random seed to use for the backend
+    /// * `random_seed` - The random seed to use for the backend
     pub fn set_random_seed(&mut self, random_seed: Vec<u64>) {
         self.random_seed = Some(random_seed);
     }
@@ -87,7 +81,7 @@ impl Backend {
     ///
     /// # Returns
     ///
-    /// `Option<Vec<u64>>` - The current random seed
+    /// * `Option<Vec<u64>>` - The current random seed
     pub fn get_random_seed(&self) -> Option<Vec<u64>> {
         self.random_seed.clone()
     }
@@ -401,7 +395,7 @@ fn handle_repeated_measurements(
     if let Some(nm) = number_measurements {
         simulation_repetitions = simulation_repetitions * nm;
     }
-    return Ok(simulation_repetitions);
+    Ok(simulation_repetitions)
 }
 
 // check if a vector contains duplicates

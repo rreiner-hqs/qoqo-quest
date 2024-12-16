@@ -90,20 +90,6 @@ fn test_failing_two_set_measurments() {
 }
 
 #[test]
-fn test_set_repetitions() {
-    let backend = Backend::new(2, None);
-    assert_eq!(backend.repetitions, 1);
-    let backend = backend.set_repetitions(10);
-    assert_eq!(backend.repetitions, 10);
-    let mut circuit = Circuit::new();
-    circuit += DefinitionComplex::new("ro".to_string(), 2, true);
-    circuit += PragmaRandomNoise::new(0, 1.0.into(), 1.0.into(), 0.0.into());
-    circuit += PragmaGetStateVector::new("ro".to_string(), None);
-    let (_, _, complex_res) = backend.run_circuit(&circuit).unwrap();
-    assert_eq!(complex_res.get("ro").unwrap().len(), 10);
-}
-
-#[test]
 fn test_readout_into_partial_register() {
     let backend = Backend::new(6, None);
     let mut circuit = Circuit::new();
@@ -180,25 +166,25 @@ fn test_running_with_device() {
     circuit += CNOT::new(0, 1);
     circuit += Toffoli::new(0, 1, 2);
     let mut dev: Option<Box<dyn Device>> = Some(Box::new(device.clone()));
-    let res = backend.run_circuit_iterator_with_device(circuit.iter(), &mut dev);
+    let res = backend.run_circuit_iterator_with_device(circuit, &mut dev);
     assert!(res.is_err());
     let mut circuit = Circuit::new();
     circuit += RotateZ::new(0, 0.1.into());
     circuit += CNOT::new(0, 10);
     circuit += Toffoli::new(0, 1, 2);
     let mut dev: Option<Box<dyn Device>> = Some(Box::new(device.clone()));
-    let res = backend.run_circuit_iterator_with_device(circuit.iter(), &mut dev);
+    let res = backend.run_circuit_iterator_with_device(circuit, &mut dev);
     assert!(res.is_err());
     let mut circuit = Circuit::new();
     circuit += CNOT::new(0, 1);
     circuit += Toffoli::new(0, 1, 2);
     let mut dev: Option<Box<dyn Device>> = Some(Box::new(device.clone()));
-    let res = backend.run_circuit_iterator_with_device(circuit.iter(), &mut dev);
+    let res = backend.run_circuit_iterator_with_device(circuit, &mut dev);
     assert!(res.is_err());
     let mut circuit = Circuit::new();
     circuit += MultiQubitZZ::new(vec![0, 1, 2], 0.1.into());
     let mut dev: Option<Box<dyn Device>> = Some(Box::new(device));
-    let res = backend.run_circuit_iterator_with_device(circuit.iter(), &mut dev);
+    let res = backend.run_circuit_iterator_with_device(circuit, &mut dev);
     assert!(res.is_err());
 }
 
