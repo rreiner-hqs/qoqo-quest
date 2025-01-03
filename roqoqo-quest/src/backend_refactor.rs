@@ -21,6 +21,7 @@ use roqoqo::RoqoqoBackendError;
 
 use crate::Qureg;
 use std::collections::{HashMap, HashSet};
+use std::panic::resume_unwind;
 
 #[cfg(feature = "async")]
 use async_trait::async_trait;
@@ -202,8 +203,10 @@ impl Backend {
         // Readout register name for the repeated measurement operation (PragmaRepeatedMeasurement
         // or PragmaSetNumberOfMeasurements), if present
         let mut repeated_measurement_readout: Option<String> = None;
-        let mut simulation_repetitions: Option<usize> = None;
+        // how many times to execute repeated measurements
         let mut number_measurements: Option<usize> = None;
+        // how many times to simulate the whole circuit from the beginning
+        let mut repetitions: usize = 1;
 
         // simulation_repetitions is the number of times the whole circuit should be rerun for a
         // stochastic simulation. This is the number set with PragmaSimulationRepetitions.
@@ -213,7 +216,7 @@ impl Backend {
             &circuit,
             &mut repeated_measurement_readout,
             &mut number_measurements,
-            &mut simulation_repetitions,
+            &mut repetitions,
             &bit_registers_lengths,
         )?;
 
@@ -229,7 +232,6 @@ impl Backend {
             };
         }
 
-        let repetitions = simulation_repetitions.unwrap_or(1);
         for _ in 0..repetitions {
             qureg.reset();
             let mut bit_registers_internal: HashMap<String, BitRegister> = HashMap::new();
@@ -309,12 +311,18 @@ fn handle_repeated_measurements(
     circuit: &Circuit,
     repeated_measurement_readout: &mut Option<String>,
     number_measurements: &mut Option<usize>,
-    simulation_repetitions: &mut Option<usize>,
+    repetitions: &mut usize,
     register_lengths: &HashMap<String, usize>,
 ) -> Result<(), RoqoqoBackendError> {
     let mut measured_qubits: Vec<usize> = vec![];
+    let mut simulation_repetitions: Option<usize> = None;
+    // actual number of repetitions for repeated measurements
+    let mut effective_number_measurements: usize = 1;
     // flag for when PragmaSimulationRepetitions is needed
     let mut stochastic_simulation = false;
+    // whether to rerun the whole circuit for every measurement of a repeated measurement, or to
+    // just sample from the probability distribution before the measurement
+    let mut rerun_whole_circuit: bool = false;
 
     for op in circuit.iter() {
         match op {
@@ -393,36 +401,43 @@ fn handle_repeated_measurements(
     // simulation_repetitions) times, so that the shot noise of the results is still determined by
     // number_measurements.
     if let Some(sim_rep) = simulation_repetitions {
-        if let Some(num_meas) = number_measurements {
+        if let Some(num_meas) = number_measurements.clone() {
             if num_meas % sim_rep != 0 {
                 return Err(RoqoqoBackendError::GenericError {
                     msg:
-                        "When both a repeated measurement and PragmaSimulationRepetitions are set,\
-                          the number of repeated measurements needs to be a multiple of the number \
-                          of simulation repetitions."
+                        "When both a repeated measurement and PragmaSimulationRepetitions are set, \
+                         the number of repeated measurements needs to be a multiple of the number \
+                         of simulation repetitions."
                             .to_string(),
                 });
             } else {
                 // Set the effective number of repetitions of the repeated measurements to their
                 // ratio, so that the number of repeated measurements set by the user represents
                 // the number of shots
-                number_measurements = Some(num_meas / sim_rep)
+                effective_number_measurements = num_meas / sim_rep;
             }
         }
     }
-    Ok(())
-}
 
-// check if a vector contains duplicates
-#[inline]
-fn contains_duplicates(vec: Vec<usize>) -> bool {
-    let mut seen = HashSet::new();
-    for &value in &vec {
-        if !seen.insert(value) {
-            return true;
+    // compute the number of times to simulate the whole circuit from the beginning
+    match rerun_whole_circuit {
+        // if true, run the whole circuit for the number of shots set by the user in the repeated measurement
+        true => {
+            if let Some(num_meas) = number_measurements {
+                *repetitions = *num_meas;
+                effective_number_measurements = 1;
+            }
+        }
+        // if false, rerun the whole circuit for the number of times specified with PragmaSimulationRepetitions
+        false => {
+            if let Some(sim_rep) = simulation_repetitions {
+                *repetitions = sim_rep;
+            }
         }
     }
-    false
+
+    number_measurements.replace(effective_number_measurements);
+    Ok(())
 }
 
 type InternalRegisters<'a> = (
@@ -528,6 +543,18 @@ fn find_pragma_op(op: &Operation) -> bool {
         | Operation::PragmaSetDensityMatrix(_) => true,
         _ => false,
     }
+}
+
+// check if a vector contains duplicates
+#[inline]
+fn contains_duplicates(vec: Vec<usize>) -> bool {
+    let mut seen = HashSet::new();
+    for &value in &vec {
+        if !seen.insert(value) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(feature = "async")]
