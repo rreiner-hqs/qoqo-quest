@@ -232,6 +232,7 @@ impl Backend {
             };
         }
 
+        // run the actual simulation
         for _ in 0..repetitions {
             qureg.reset();
             let mut bit_registers_internal: HashMap<String, BitRegister> = HashMap::new();
@@ -302,11 +303,11 @@ impl Backend {
 
 /// Handler for repeated measurements.
 ///
-/// Checks that the number of repetitions given by PragmaSimulationRepeittions is coherent with the
-/// rest of the circuit. The number of simulation repetitions should be greater than one if at least
-/// one of the following conditions if met
+/// The number of simulation repetitions set with PragmaSimulationRepetitions should be greater than
+/// one if at least one of the following conditions if met
+///
 /// 1) There are multiple measure operations on the same qubit
-/// 2) A qubit is acted upon with a multi-qubit gate after it has been measured
+/// 2) A qubit is acted upon after it has been measured
 fn handle_repeated_measurements(
     circuit: &Circuit,
     repeated_measurement_readout: &mut Option<String>,
@@ -315,6 +316,7 @@ fn handle_repeated_measurements(
     register_lengths: &HashMap<String, usize>,
 ) -> Result<(), RoqoqoBackendError> {
     let mut measured_qubits: Vec<usize> = vec![];
+    // let mut measured_qubits_in_repeated_measurement: Vec<usize> = vec![];
     let mut simulation_repetitions: Option<usize> = None;
     // actual number of repetitions for repeated measurements
     let mut effective_number_measurements: usize = 1;
@@ -326,7 +328,18 @@ fn handle_repeated_measurements(
 
     for op in circuit.iter() {
         match op {
-            Operation::MeasureQubit(o) => measured_qubits.push(*o.qubit()),
+            Operation::MeasureQubit(o) => {
+                let out_reg = o.readout();
+                // if a qubit in a repeated measurement has already been measured, the circuit needs
+                // to be rerun from the beginning for every repetition of the repeated measurement
+                if let Some(rm_readout) = repeated_measurement_readout {
+                    if out_reg == rm_readout && measured_qubits.contains(o.qubit()) {
+                        rerun_whole_circuit = true;
+                        // measured_qubits_in_repeated_measurement.push(*o.qubit());
+                    }
+                }
+                measured_qubits.push(*o.qubit());
+            }
             Operation::PragmaRepeatedMeasurement(o) => match number_measurements {
                 Some(_) => {
                     return Err(RoqoqoBackendError::GenericError {
@@ -339,10 +352,15 @@ fn handle_repeated_measurements(
                             .get(o.readout())
                             .ok_or(RoqoqoBackendError::GenericError {
                             msg: "No register corresponding to PragmaRepeatedMeasurement readout \
-                                found"
+                                found."
                                 .to_string(),
                         })?;
-                    measured_qubits.extend(0..number_qubits - 1);
+                    let involved_qubits = (0..number_qubits - 1).collect::<Vec<usize>>();
+                    // measured_qubits_in_repeated_measurement.extend(involved_qubits);
+                    if involved_qubits.iter().any(|q| measured_qubits.contains(q)) {
+                        rerun_whole_circuit = true;
+                    }
+                    measured_qubits.extend(involved_qubits);
                     number_measurements.replace(*o.number_measurements());
                     repeated_measurement_readout.replace(o.readout().clone());
                 }
@@ -425,18 +443,15 @@ fn handle_repeated_measurements(
         true => {
             if let Some(num_meas) = number_measurements {
                 *repetitions = *num_meas;
-                effective_number_measurements = 1;
+                number_measurements.replace(effective_number_measurements);
             }
         }
         // if false, rerun the whole circuit for the number of times specified with PragmaSimulationRepetitions
         false => {
-            if let Some(sim_rep) = simulation_repetitions {
-                *repetitions = sim_rep;
-            }
+            *repetitions = simulation_repetitions.unwrap_or(1);
         }
     }
 
-    number_measurements.replace(effective_number_measurements);
     Ok(())
 }
 
