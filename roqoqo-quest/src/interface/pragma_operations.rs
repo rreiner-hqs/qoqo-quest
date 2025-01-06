@@ -38,7 +38,7 @@ type CallCircuitWithDevice = fn(
     &mut Option<Box<dyn roqoqo::devices::Device>>,
 ) -> Result<(), RoqoqoBackendError>;
 
-pub fn execute_pragma_repeated_measurement(
+pub(crate) fn execute_pragma_repeated_measurement(
     operation: &PragmaRepeatedMeasurement,
     qureg: &mut Qureg,
     bit_registers: &mut HashMap<String, BitRegister>,

@@ -544,6 +544,10 @@ fn run_inner_circuit_loop(
             }
             Operation::MeasureQubit(internal_op) => {
                 if let Some(position) = replace_measurements {
+                    let number_measurements = number_measurements.expect(
+                        "Internal bug: number measurements should not be None if a repeated \
+                                measurement is present.",
+                    );
                     if internal_op.qubit() == &position {
                         if let Some(helper) = repeated_measurement_pragma.as_ref() {
                             execute_pragma_repeated_measurement(
@@ -551,6 +555,7 @@ fn run_inner_circuit_loop(
                                 qureg,
                                 bit_registers_internal,
                                 bit_registers_output,
+                                number_measurements,
                             )?;
                         }
                     }

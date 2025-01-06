@@ -24,7 +24,7 @@ use std::convert::TryFrom;
 use std::os::raw::c_int;
 
 mod pragma_operations;
-use pragma_operations::*;
+pub(crate) use pragma_operations::*;
 mod gate_operations;
 use gate_operations::*;
 mod preprocessing;
