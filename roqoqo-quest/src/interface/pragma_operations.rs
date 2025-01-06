@@ -20,6 +20,12 @@ use roqoqo::Circuit;
 use roqoqo::RoqoqoBackendError;
 use std::collections::HashMap;
 
+/// Numerical accuracy for ignoring negative occupation probabilities
+///
+/// Negative probabilities with a smaller absolute value will be interpreted as 0.
+/// Negative probabilities with a larger absolute value will cause an error.
+const NEGATIVE_PROBABILITIES_CUTOFF: f64 = -1.0e-14;
+
 // type alias for the signature of call_circuit_with_device, to decouple this module from mod.rs and
 // avoid circular imports
 type CallCircuitWithDevice = fn(
@@ -37,6 +43,7 @@ pub fn execute_pragma_repeated_measurement(
     qureg: &mut Qureg,
     bit_registers: &mut HashMap<String, BitRegister>,
     bit_registers_output: &mut HashMap<String, BitOutputRegister>,
+    number_measurements: usize,
 ) -> Result<(), RoqoqoBackendError> {
     let index_dict = operation.qubit_mapping();
     let number_qubits = qureg.number_qubits();
@@ -63,7 +70,7 @@ pub fn execute_pragma_repeated_measurement(
     bit_registers.remove(operation.readout());
     match index_dict {
         None => {
-            for _ in 0..*operation.number_measurements() {
+            for _ in 0..number_measurements {
                 let index = distribution.sample(&mut rng);
                 let mut tmp = existing_register.clone();
                 for (a, b) in index_to_qubits(index, number_qubits)
@@ -76,7 +83,7 @@ pub fn execute_pragma_repeated_measurement(
             }
         }
         Some(mapping) => {
-            for _ in 0..*operation.number_measurements() {
+            for _ in 0..number_measurements {
                 let index = distribution.sample(&mut rng);
                 let tmp_output = index_to_qubits(index, number_qubits);
                 let mut new_output: Vec<bool> = existing_register.clone();
@@ -554,6 +561,26 @@ fn create_rng(qureg: &mut Qureg) -> Result<StdRng, RoqoqoBackendError> {
             })?,
         )
     }
+}
+
+#[inline]
+/// Sanitizes negative occupation probabilities
+///
+/// Setting negative probabilites with an absolute value less than a threshold to 0
+fn sanitize_probabilities(probabilities: &mut Vec<f64>) -> Result<(), RoqoqoBackendError> {
+    for val in probabilities.iter_mut() {
+        if *val < NEGATIVE_PROBABILITIES_CUTOFF {
+            return Err(RoqoqoBackendError::GenericError {
+                msg: format!(
+                    "Negative state occupation probabilites encountered {:?}",
+                    probabilities
+                ),
+            });
+        } else if *val < 0.0 {
+            *val = 0.0
+        }
+    }
+    Ok(())
 }
 
 // #[cfg(test)]
