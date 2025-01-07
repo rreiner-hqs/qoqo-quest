@@ -173,7 +173,7 @@ impl Backend {
     /// # Returns
     ///
     /// * `RegisterResult` - The output registers written by the evaluated circuits.
-    pub fn run_circuit_iterator_with_device<'a>(
+    pub fn run_circuit_iterator_with_device(
         &self,
         circuit: Circuit,
         device: &mut Option<Box<dyn roqoqo::devices::Device>>,
@@ -297,7 +297,8 @@ impl Backend {
     #[inline]
     fn validate_circuit(
         &self,
-        circuit: &Circuit,
+        // TEMP would be needed if this were a proper validation function
+        _circuit: &Circuit,
         number_used_qubits: usize,
     ) -> Result<(), RoqoqoBackendError> {
         if number_used_qubits > self.number_qubits {
@@ -445,7 +446,7 @@ fn handle_repeated_measurements(
     // simulation_repetitions) times, so that the shot noise of the results is still determined by
     // number_measurements.
     if let Some(sim_rep) = simulation_repetitions {
-        if let Some(num_meas) = number_measurements.clone() {
+        if let Some(num_meas) = *number_measurements {
             if num_meas % sim_rep != 0 {
                 return Err(RoqoqoBackendError::GenericError {
                     msg:
@@ -539,6 +540,7 @@ type InternalRegisters<'a> = (
 // groups replace_measurements and repeated_measurement_pragma
 type ReplacedMeasurementInformation<'a> = (Option<usize>, &'a Option<PragmaRepeatedMeasurement>);
 
+#[allow(clippy::too_many_arguments)]
 fn run_inner_circuit_loop(
     register_lengths: &HashMap<String, usize>,
     circuit: &Circuit,
@@ -642,19 +644,19 @@ fn run_inner_circuit_loop(
 #[inline]
 fn find_pragma_op(op: &Operation) -> bool {
     match op {
-        Operation::PragmaConditional(x) => x.circuit().iter().any(|x| find_pragma_op(&x)),
-        Operation::PragmaLoop(x) => x.circuit().iter().any(|x| find_pragma_op(&x)),
-        Operation::PragmaGetPauliProduct(x) => x.circuit().iter().any(|x| find_pragma_op(&x)),
+        Operation::PragmaConditional(x) => x.circuit().iter().any(find_pragma_op),
+        Operation::PragmaLoop(x) => x.circuit().iter().any(find_pragma_op),
+        Operation::PragmaGetPauliProduct(x) => x.circuit().iter().any(find_pragma_op),
         Operation::PragmaGetOccupationProbability(x) => {
             if let Some(circ) = x.circuit() {
-                circ.iter().any(|x| find_pragma_op(&x))
+                circ.iter().any(find_pragma_op)
             } else {
                 false
             }
         }
         Operation::PragmaGetDensityMatrix(x) => {
             if let Some(circ) = x.circuit() {
-                circ.iter().any(|x| find_pragma_op(&x))
+                circ.iter().any(find_pragma_op)
             } else {
                 false
             }
