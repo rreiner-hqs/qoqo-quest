@@ -101,10 +101,14 @@ fn test_readout_into_partial_register() {
     circuit += MeasureQubit::new(1, "ro_0".to_string(), 4);
     circuit += MeasureQubit::new(1, "ro_0".to_string(), 5);
     circuit += PragmaRepeatedMeasurement::new("ro_0".to_string(), 10, None);
+    circuit += PragmaSimulationRepetitions::new(5);
+
     let (bit_res, _, _) = backend.run_circuit(&circuit).unwrap();
     assert!(bit_res.contains_key("ro_0"));
+
     let bit_vec_of_vecs = bit_res.get("ro_0").unwrap();
     assert_eq!(bit_vec_of_vecs.len(), 10);
+
     for bit_vec in bit_vec_of_vecs {
         assert_eq!(bit_vec.len(), 6);
     }
@@ -122,10 +126,14 @@ fn test_readout_into_partial_register_set_number_measurements() {
     circuit += MeasureQubit::new(1, "ro_0".to_string(), 4);
     circuit += MeasureQubit::new(1, "ro_0".to_string(), 5);
     circuit += PragmaSetNumberOfMeasurements::new(10, "ro_0".to_string());
+    circuit += PragmaSimulationRepetitions::new(5);
+
     let (bit_res, _, _) = backend.run_circuit(&circuit).unwrap();
     assert!(bit_res.contains_key("ro_0"));
+
     let bit_vec_of_vecs = bit_res.get("ro_0").unwrap();
     assert_eq!(bit_vec_of_vecs.len(), 10);
+
     for bit_vec in bit_vec_of_vecs {
         assert_eq!(bit_vec.len(), 6);
         assert_eq!(bit_vec, &vec![false, false, false, true, true, true]);

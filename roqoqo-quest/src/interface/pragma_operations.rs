@@ -45,10 +45,15 @@ pub(crate) fn execute_pragma_repeated_measurement(
     bit_registers_output: &mut HashMap<String, BitOutputRegister>,
     number_measurements: usize,
 ) -> Result<(), RoqoqoBackendError> {
+    println!(
+        "CALLED EXECUTE REPEATED MEAS with number meas: {:?}",
+        number_measurements
+    );
     let index_dict = operation.qubit_mapping();
     let number_qubits = qureg.number_qubits();
     let mut probabilities = qureg.probabilites();
     sanitize_probabilities(&mut probabilities)?;
+    println!("Probabilities: {:?}", probabilities);
 
     let distribution =
         WeightedIndex::new(&probabilities).map_err(|err| RoqoqoBackendError::GenericError {
@@ -58,7 +63,7 @@ pub(crate) fn execute_pragma_repeated_measurement(
     let existing_register = bit_registers
         .get(operation.readout())
         .map(|x| x.to_owned())
-        .unwrap_or_else(|| vec![false; usize::try_from(number_qubits).unwrap()]);
+        .unwrap_or(vec![false; usize::try_from(number_qubits).unwrap()]);
     let output_register: &mut BitOutputRegister = bit_registers_output
         .get_mut(operation.readout())
         .ok_or(RoqoqoBackendError::GenericError {
@@ -72,26 +77,24 @@ pub(crate) fn execute_pragma_repeated_measurement(
         None => {
             for _ in 0..number_measurements {
                 let index = distribution.sample(&mut rng);
-                let mut tmp = existing_register.clone();
-                for (a, b) in index_to_qubits(index, number_qubits)
+                let mut new_output = existing_register.clone();
+                for (k, val) in index_to_qubits(index, number_qubits)
                     .into_iter()
                     .enumerate()
                 {
-                    tmp[a] = b
+                    new_output[k] = val
                 }
-                output_register.push(tmp)
+                output_register.push(new_output)
             }
         }
         Some(mapping) => {
             for _ in 0..number_measurements {
                 let index = distribution.sample(&mut rng);
                 let tmp_output = index_to_qubits(index, number_qubits);
-                let mut new_output: Vec<bool> = existing_register.clone();
+                let mut new_output = existing_register.clone();
+                println!("NEW OUTPUT: {:?}", existing_register);
                 for (k, val) in tmp_output.into_iter().enumerate() {
-                    let tmp_index = match mapping.get(&k) {
-                        Some(ind) => ind,
-                        None => &k,
-                    };
+                    let tmp_index = mapping.get(&k).unwrap_or(&k);
                     new_output[*tmp_index] = val;
                 }
                 output_register.push(new_output);
